@@ -83,6 +83,7 @@ class WindowsVoiceTyperApp:
         self._paste_target_hwnd = 0
         self._paste_target_focus_hwnd = 0
         self._model_warmup_thread = None
+        self._model_setup_thread = None
         self._streaming_session = None
         self._status_queue: queue.Queue[str] = queue.Queue()
         self.log_path = app_data_dir() / "koe-kichi.log"
@@ -120,6 +121,10 @@ class WindowsVoiceTyperApp:
 
     def start_recording(self, target_hwnd: int | None = None, target_focus_hwnd: int | None = None) -> bool:
         with self._lock:
+            if self._model_loading:
+                self._log("recording start ignored: model setup is running")
+                self._set_status("Model setup is running")
+                return False
             if self._state != AppState.READY or self.recorder.is_recording:
                 self._log(f"recording start ignored: state={self._state.value} recording={self.recorder.is_recording}")
                 return False
@@ -275,6 +280,65 @@ class WindowsVoiceTyperApp:
         self._model_warmup_thread = threading.Thread(target=warmup, daemon=True)
         self._model_warmup_thread.start()
 
+    def _run_model_setup(self, *, allow_while_busy: bool = False, notify_when_already_running: bool = True) -> None:
+        with self._lock:
+            running = self._model_setup_thread is not None and self._model_setup_thread.is_alive()
+            if running or self._model_loading:
+                self._log("model setup request ignored: already running")
+                if notify_when_already_running:
+                    self._notify("Koe Kichi setup", "Whisper model setup is already running.")
+                return
+            if not allow_while_busy and (self.recorder.is_recording or self._busy):
+                self._log("model setup request ignored: app is recording or processing")
+                self._notify("Koe Kichi setup", "録音中または処理中はセットアップを開始できません。")
+                return
+
+        def setup() -> None:
+            started = time.perf_counter()
+            model = str(self.config.get("whisper_model", "small") or "small")
+            device = str(self.config.get("whisper_device", "cpu") or "cpu")
+            compute_type = str(self.config.get("whisper_compute_type", "int8") or "int8")
+            self._model_loading = True
+            self._set_status(f"Setting up Whisper model: {model}")
+            self._log(
+                "whisper model setup started: "
+                f"model={model} device={device} compute_type={compute_type} "
+                f"cpu_threads={self.transcriber.cpu_threads} num_workers={self.transcriber.num_workers}"
+            )
+            try:
+                self.transcriber.ensure_model()
+            except Exception as error:
+                self._log(f"whisper model setup failed: {error}")
+                self._set_status("Model setup failed - see log")
+                self._notify("Koe Kichi setup failed", "モデルを準備できませんでした。ネットワークとモデル名を確認してください。")
+                return
+            finally:
+                self._model_loading = False
+                self._model_setup_thread = None
+            self._log(f"whisper model setup complete seconds={time.perf_counter() - started:.2f}")
+            with self._lock:
+                ready_for_status = self._state == AppState.READY
+            if not self.recorder.is_recording and ready_for_status:
+                self._set_status("Ready - model is ready")
+            self._notify("Koe Kichi setup complete", f"Whisper model is ready: {model}")
+
+        thread = threading.Thread(target=setup, daemon=True)
+        self._model_setup_thread = thread
+        thread.start()
+
+    def _is_model_setup_error(self, error: Exception) -> bool:
+        message = str(error).lower()
+        needles = (
+            "faster-whisper",
+            "whispermodel",
+            "model",
+            "huggingface",
+            "local cache",
+            "network",
+            "download",
+        )
+        return any(needle in message for needle in needles)
+
     def stop(self) -> None:
         with self._lock:
             self._transition_locked(AppState.STOPPED, "app stopping")
@@ -315,6 +379,7 @@ class WindowsVoiceTyperApp:
     def _transcribe_and_paste(self, audio_path: Path, streaming_session: Any | None = None) -> None:
         timings: dict[str, float] = {}
         workflow_started = time.perf_counter()
+        run_setup_after_failure = False
 
         def timed(name: str, callback: Any) -> Any:
             started = time.perf_counter()
@@ -400,8 +465,13 @@ class WindowsVoiceTyperApp:
             self._set_status("Ready - pasted")
         except Exception as error:
             self._log(f"transcription failed: {error}")
-            self._set_status("Error - see log")
-            self._notify("Koe Kichi error", str(error)[:120])
+            if self._is_model_setup_error(error):
+                run_setup_after_failure = True
+                self._set_status("Model not ready - starting setup")
+                self._notify("Koe Kichi setup", "モデル未準備の可能性があります。セットアップを開始します。")
+            else:
+                self._set_status("Error - see log")
+                self._notify("Koe Kichi error", str(error)[:120])
             with self._lock:
                 self._transition_locked(AppState.ERROR, "processing failed")
         finally:
@@ -418,6 +488,8 @@ class WindowsVoiceTyperApp:
             with self._lock:
                 if self._state != AppState.STOPPED:
                     self._transition_locked(AppState.READY, "processing finished")
+            if run_setup_after_failure:
+                self._run_model_setup(allow_while_busy=True, notify_when_already_running=False)
 
     def _start_keyboard_listener(self) -> None:
         listeners: list[Any] = []
@@ -864,7 +936,7 @@ class WindowsVoiceTyperApp:
                 switch_view("recording")
             elif self._busy:
                 switch_view("working")
-            elif self._model_loading and hud_visible["value"]:
+            elif self._model_loading:
                 switch_view("loading")
             else:
                 switch_view("idle")
@@ -1495,6 +1567,9 @@ class WindowsVoiceTyperApp:
         def open_settings(_icon: Any, _item: Any) -> None:
             self._schedule_ui(self._open_settings_window)
 
+        def run_model_setup(_icon: Any, _item: Any) -> None:
+            self._run_model_setup()
+
         def exit_app(_icon: Any, _item: Any) -> None:
             self.stop()
 
@@ -1507,6 +1582,7 @@ class WindowsVoiceTyperApp:
         menu = pystray.Menu(
             pystray.MenuItem("Koe Kichi is running", None, enabled=False),
             pystray.MenuItem("\u8a2d\u5b9a...", open_settings),
+            pystray.MenuItem("\u30e2\u30c7\u30eb\u30bb\u30c3\u30c8\u30a2\u30c3\u30d7...", run_model_setup),
             pystray.MenuItem("\u8f9e\u66f8\u767b\u9332...", open_dictionary),
             pystray.MenuItem("\u5c65\u6b74...", open_history),
             pystray.Menu.SEPARATOR,

@@ -16,6 +16,7 @@ faster-whisper by default, and pastes the result into the current text field.
 - Popup HUD: appears near the cursor while recording/processing and auto-hides
   after paste.
 - Task tray menu: settings, dictionary registration, history, and exit.
+- Model setup from the task tray when the Whisper model is not downloaded yet.
 - Dictionary: register spoken forms such as `春シネーション` to
   `ハルシネーション`.
 - Whisper model selection: `small`, `medium`, `large-v3`, and `turbo`.
@@ -54,6 +55,10 @@ are not stored in this repository, dictionary, history, or release package.
 ordinary Windows machines. `turbo` is based on `large-v3` and can be a strong
 speed/accuracy choice on GPU-equipped machines, but it is still much larger than
 `small`; CPU-only machines may not benefit enough to make it the default.
+
+If the selected Whisper model is not downloaded yet, choose
+`モデルセットアップ...` from the task tray menu. Koe Kichi also starts model
+setup automatically when local transcription fails with a model-readiness error.
 
 ## Uninstall
 
