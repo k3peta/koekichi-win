@@ -17,6 +17,9 @@ class PostprocessResult:
 
 
 JAPANESE_CHARS = r"一-龠々〆ヵヶぁ-んァ-ン"
+OPENING_QUOTES = "「『“‘"
+CLOSING_QUOTES = "」』”’"
+QUOTE_PAIRS = (("「", "」"), ("『", "』"), ("“", "”"), ("‘", "’"))
 COMMON_TRANSCRIPT_HALLUCINATIONS = (
     "それではご視聴ありがとうございました",
     "ではご視聴ありがとうございました",
@@ -139,6 +142,9 @@ def normalize_transcript_artifacts(text: str) -> str:
     result = remove_common_hallucination_fillers(result)
     if not result:
         return result
+    result = normalize_quote_artifacts(result)
+    if not result:
+        return result
     result = re.sub(r"[ \t\u3000]+([、。！？!?.,，．])", r"\1", result)
     result = re.sub(rf"(?<=[{JAPANESE_CHARS}])[ \t\u3000]+(?=[{JAPANESE_CHARS}A-Za-z0-9])", "", result)
     result = re.sub(rf"(?<=[A-Za-z0-9])[ \t\u3000]+(?=[{JAPANESE_CHARS}])", "", result)
@@ -158,11 +164,17 @@ def remove_common_hallucination_fillers(text: str) -> str:
         return ""
 
     separator = r"[\s、。！？!?.,，．]*"
+    changed = False
     for phrase in COMMON_TRANSCRIPT_HALLUCINATIONS:
         escaped = re.escape(phrase)
-        result = re.sub(rf"^(?:{escaped}{separator})+", "", result)
-        result = re.sub(rf"(?:{separator}{escaped})+$", "", result)
-    return result.strip(" \t\r\n、。！？!?.,，．")
+        updated = re.sub(rf"^(?:{escaped}{separator})+", "", result)
+        updated = re.sub(rf"(?:{separator}{escaped})+$", "", updated)
+        if updated != result:
+            changed = True
+            result = updated
+    if changed:
+        return result.strip(" \t\r\n、。！？!?.,，．")
+    return result.strip()
 
 
 def collapse_repeated_artifacts(text: str) -> str:
@@ -177,6 +189,27 @@ def collapse_repeated_artifacts(text: str) -> str:
     return result
 
 
+def normalize_quote_artifacts(text: str) -> str:
+    result = text.strip()
+    if not result:
+        return result
+    quote_chars = re.escape(OPENING_QUOTES + CLOSING_QUOTES)
+    if not re.sub(rf"[\s、。！？!?.,，．{quote_chars}]+", "", result):
+        return ""
+
+    opening = re.escape(OPENING_QUOTES)
+    punctuation = "、。！？!?.,，．"
+    escaped_punctuation = re.escape(punctuation)
+    result = re.sub(rf"[{opening}]+\s*([{escaped_punctuation}])$", r"\1", result)
+    result = re.sub(rf"([{escaped_punctuation}])\s*[{opening}]+$", r"\1", result)
+    result = re.sub(rf"\s*[{opening}]+$", "", result).rstrip()
+
+    for left, right in QUOTE_PAIRS:
+        if result.count(right) > result.count(left):
+            result = re.sub(rf"^{re.escape(right)}+", "", result).lstrip()
+    return result
+
+
 def normalize_common_misrecognitions(text: str) -> str:
     result = text
     replacements = (
@@ -185,6 +218,12 @@ def normalize_common_misrecognitions(text: str) -> str:
         ("ペンチマーク", "ベンチマーク"),
         ("グラッシュ", "クラッシュ"),
         ("ミスパー", "Whisper"),
+        ("5人式", "誤認識"),
+        ("五人式", "誤認識"),
+        ("5認識", "誤認識"),
+        ("五認識", "誤認識"),
+        ("5時たち", "誤字たち"),
+        ("五時たち", "誤字たち"),
         ("自処的", "自動的"),
         ("自処に", "自動的に"),
         ("実過", "実装"),
@@ -201,6 +240,11 @@ def normalize_common_misrecognitions(text: str) -> str:
     )
     for source, target in replacements:
         result = result.replace(source, target)
+    result = re.sub(
+        r"(?<!\d)[5五]時(?=(?:たち|など|が(?:出|混)|も(?:出|混)|を(?:直|修正|潰)|の(?:修正|補正|混入)))",
+        "誤字",
+        result,
+    )
     result = re.sub(r"((?:キーボード|キー|入力|マウス|マウスカーソル|カーソル|ボタン)が)向こう(?=になる|に)", r"\1無効", result)
     return result
 
@@ -241,13 +285,12 @@ def sanitize_model_output(text: str) -> str:
     for prefix in ("出力:", "出力：", "修正後:", "修正後："):
         if result.startswith(prefix):
             result = result[len(prefix) :].strip()
-    quote_pairs = (("「", "」"), ("『", "』"), ("“", "”"), ("‘", "’"))
-    for left, right in quote_pairs:
+    for left, right in QUOTE_PAIRS:
         if result.startswith(left) and result.endswith(right):
             result = result[len(left) : -len(right)].strip()
     if len(result) >= 2 and result[0] == result[-1] and result[0] in "\"'「」":
         result = result[1:-1].strip()
-    return result
+    return normalize_quote_artifacts(result)
 
 
 def validate_punctuation_rewrite(original: str, rewritten: str) -> None:
