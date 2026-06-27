@@ -16,6 +16,8 @@ class FasterWhisperTranscriber:
         cpu_fallback: bool = True,
         cpu_threads: int | str | None = "auto",
         num_workers: int = 1,
+        beam_size: int = 3,
+        condition_on_previous_text: bool = False,
     ):
         self.model = model
         self.device = device or "cpu"
@@ -24,6 +26,8 @@ class FasterWhisperTranscriber:
         self.cpu_fallback = cpu_fallback
         self.cpu_threads = _resolve_cpu_threads(cpu_threads)
         self.num_workers = max(1, int(num_workers or 1))
+        self.beam_size = max(1, int(beam_size or 1))
+        self.condition_on_previous_text = bool(condition_on_previous_text)
         self._model: Any | None = None
         self._model_lock = threading.Lock()
         self._transcribe_lock = threading.Lock()
@@ -42,7 +46,8 @@ class FasterWhisperTranscriber:
                 language=self.language,
                 initial_prompt=prompt or None,
                 vad_filter=True,
-                beam_size=1,
+                beam_size=self.beam_size,
+                condition_on_previous_text=self.condition_on_previous_text,
             )
             return [
                 {

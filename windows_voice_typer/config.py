@@ -14,6 +14,19 @@ WHISPER_MODEL_OPTIONS: list[tuple[str, str]] = [
     ("turbo", "turbo - large-v3 based, faster mainly on GPU"),
 ]
 
+WHISPER_BEAM_SIZE_OPTIONS: list[tuple[int, str]] = [
+    (1, "1 - fastest"),
+    (3, "3 - balanced accuracy"),
+    (5, "5 - most accurate, slower"),
+]
+
+POSTPROCESS_MODE_OPTIONS: list[tuple[str, str]] = [
+    ("local_punctuation", "Local fixed correction"),
+    ("openai_compatible_punctuation", "AI punctuation only"),
+    ("openai_compatible_rewrite", "AI light correction"),
+    ("off", "Off"),
+]
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "language": "ja",
     "sample_rate": 16000,
@@ -41,6 +54,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "whisper_cpu_fallback": True,
     "whisper_cpu_threads": "auto",
     "whisper_num_workers": 1,
+    "whisper_beam_size": 3,
+    "whisper_condition_on_previous_text": False,
     "whisper_prompt": "",
     "transcription_provider": "local_whisper",
     "gemini_model": "gemini-3.5-flash",

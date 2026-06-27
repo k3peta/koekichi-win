@@ -23,6 +23,8 @@ from .config import default_config_path
 from .config import load_config
 from .config import save_config
 from .config import WHISPER_MODEL_OPTIONS
+from .config import POSTPROCESS_MODE_OPTIONS
+from .config import WHISPER_BEAM_SIZE_OPTIONS
 from .dictionary import VoiceDictionary
 from .gemini_transcriber import GeminiAudioTranscriber
 from .gemini_transcriber import get_api_key
@@ -103,6 +105,8 @@ class WindowsVoiceTyperApp:
             cpu_fallback=bool(self.config.get("whisper_cpu_fallback", True)),
             cpu_threads=self.config.get("whisper_cpu_threads", "auto"),
             num_workers=int(self.config.get("whisper_num_workers", 1) or 1),
+            beam_size=int(self.config.get("whisper_beam_size", 3) or 3),
+            condition_on_previous_text=bool(self.config.get("whisper_condition_on_previous_text", False)),
         )
 
     def _transcription_provider(self) -> str:
@@ -1087,8 +1091,8 @@ class WindowsVoiceTyperApp:
 
         window = tk.Toplevel(root)
         window.title("Koe Kichi Settings")
-        window.geometry("660x610+130+130")
-        window.minsize(600, 580)
+        window.geometry("720x760+130+80")
+        window.minsize(660, 700)
 
         main = ttk.Frame(window, padding=14)
         main.pack(fill=tk.BOTH, expand=True)
@@ -1147,6 +1151,24 @@ class WindowsVoiceTyperApp:
             model_options.append((model_value, f"{model_value} - current custom model"))
         model_label_to_value = {label: value for value, label in model_options}
         model_var = tk.StringVar(value=_label_for_value(model_options, model_value))
+        beam_options = list(WHISPER_BEAM_SIZE_OPTIONS)
+        beam_value = int(current.get("whisper_beam_size", 3) or 3)
+        if not any(value == beam_value for value, _label in beam_options):
+            beam_options.append((beam_value, f"{beam_value} - current custom value"))
+        beam_label_to_value = {label: value for value, label in beam_options}
+        beam_var = tk.StringVar(value=_label_for_value(beam_options, beam_value))
+        condition_previous_var = tk.BooleanVar(
+            value=bool(current.get("whisper_condition_on_previous_text", False))
+        )
+        postprocess_options = list(POSTPROCESS_MODE_OPTIONS)
+        postprocess_value = str(current.get("postprocess_mode", "local_punctuation") or "local_punctuation")
+        if not any(value == postprocess_value for value, _label in postprocess_options):
+            postprocess_options.append((postprocess_value, f"{postprocess_value} - current custom mode"))
+        postprocess_label_to_value = {label: value for value, label in postprocess_options}
+        postprocess_var = tk.StringVar(value=_label_for_value(postprocess_options, postprocess_value))
+        ai_base_url_var = tk.StringVar(value=str(current.get("openai_compatible_base_url", "") or ""))
+        ai_model_var = tk.StringVar(value=str(current.get("openai_compatible_model", "gpt-4.1-mini") or "gpt-4.1-mini"))
+        ai_key_env_var = tk.StringVar(value=str(current.get("openai_compatible_api_key_env", "OPENAI_API_KEY") or "OPENAI_API_KEY"))
         gemini_env_var = tk.StringVar(value=str(current.get("gemini_api_key_env", "GEMINI_API_KEY") or "GEMINI_API_KEY"))
         API_KEY_MASK = "\u25cf" * 12
         gemini_key_var = tk.StringVar(value=API_KEY_MASK if get_api_key(gemini_env_var.get()) else "")
@@ -1179,6 +1201,16 @@ class WindowsVoiceTyperApp:
 
         def sync_middle_click_state(*_args: Any) -> None:
             middle_click_suppress_check.configure(state="disabled")
+
+        def selected_postprocess() -> str:
+            return postprocess_label_to_value.get(postprocess_var.get(), "local_punctuation")
+
+        def sync_postprocess_state(*_args: Any) -> None:
+            enabled = selected_postprocess().startswith("openai_compatible_")
+            state = "normal" if enabled else "disabled"
+            ai_base_url_entry.configure(state=state)
+            ai_model_entry.configure(state=state)
+            ai_key_env_entry.configure(state=state)
 
         def mark_key_dirty(*_args: Any) -> None:
             if gemini_key_state["placeholder"] and gemini_key_var.get() == API_KEY_MASK:
@@ -1259,17 +1291,55 @@ class WindowsVoiceTyperApp:
         )
         model_box.grid(row=5, column=1, sticky=tk.EW, pady=6)
 
-        ttk.Label(main, text="Gemini API key env").grid(row=6, column=0, sticky=tk.W, pady=6)
+        ttk.Label(main, text="Whisper accuracy").grid(row=6, column=0, sticky=tk.W, pady=6)
+        beam_row = ttk.Frame(main)
+        beam_row.grid(row=6, column=1, sticky=tk.EW, pady=6)
+        beam_row.columnconfigure(0, weight=1)
+        beam_box = ttk.Combobox(
+            beam_row,
+            textvariable=beam_var,
+            values=[label for _value, label in beam_options],
+            state="readonly",
+        )
+        beam_box.grid(row=0, column=0, sticky=tk.EW)
+        ttk.Checkbutton(
+            beam_row,
+            text="Use previous text context",
+            variable=condition_previous_var,
+        ).grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
+
+        ttk.Label(main, text="Text correction").grid(row=7, column=0, sticky=tk.W, pady=6)
+        postprocess_box = ttk.Combobox(
+            main,
+            textvariable=postprocess_var,
+            values=[label for _value, label in postprocess_options],
+            state="readonly",
+        )
+        postprocess_box.grid(row=7, column=1, sticky=tk.EW, pady=6)
+
+        ttk.Label(main, text="AI correction URL").grid(row=8, column=0, sticky=tk.W, pady=6)
+        ai_base_url_entry = ttk.Entry(main, textvariable=ai_base_url_var)
+        ai_base_url_entry.grid(row=8, column=1, sticky=tk.EW, pady=6)
+
+        ttk.Label(main, text="AI correction model").grid(row=9, column=0, sticky=tk.W, pady=6)
+        ai_model_entry = ttk.Entry(main, textvariable=ai_model_var)
+        ai_model_entry.grid(row=9, column=1, sticky=tk.EW, pady=6)
+
+        ttk.Label(main, text="AI correction key env").grid(row=10, column=0, sticky=tk.W, pady=6)
+        ai_key_env_entry = ttk.Entry(main, textvariable=ai_key_env_var)
+        ai_key_env_entry.grid(row=10, column=1, sticky=tk.EW, pady=6)
+
+        ttk.Label(main, text="Gemini API key env").grid(row=11, column=0, sticky=tk.W, pady=6)
         gemini_row = ttk.Frame(main)
-        gemini_row.grid(row=6, column=1, sticky=tk.EW, pady=6)
+        gemini_row.grid(row=11, column=1, sticky=tk.EW, pady=6)
         gemini_row.columnconfigure(0, weight=1)
         gemini_env_entry = ttk.Entry(gemini_row, textvariable=gemini_env_var)
         gemini_env_entry.grid(row=0, column=0, sticky=tk.EW)
         ttk.Label(gemini_row, textvariable=api_status_var).grid(row=0, column=1, padx=(10, 0))
 
-        ttk.Label(main, text="Gemini API key").grid(row=7, column=0, sticky=tk.W, pady=6)
+        ttk.Label(main, text="Gemini API key").grid(row=12, column=0, sticky=tk.W, pady=6)
         key_row = ttk.Frame(main)
-        key_row.grid(row=7, column=1, sticky=tk.EW, pady=6)
+        key_row.grid(row=12, column=1, sticky=tk.EW, pady=6)
         key_row.columnconfigure(0, weight=1)
         gemini_key_entry = ttk.Entry(key_row, textvariable=gemini_key_var, show="\u25cf")
         gemini_key_entry.grid(row=0, column=0, sticky=tk.EW)
@@ -1277,7 +1347,7 @@ class WindowsVoiceTyperApp:
         paste_key_button.grid(row=0, column=1, padx=(8, 0))
 
         ttk.Checkbutton(main, text="Launch Koe Kichi when I sign in", variable=launch_var).grid(
-            row=8,
+            row=13,
             column=1,
             sticky=tk.W,
             pady=6,
@@ -1287,7 +1357,7 @@ class WindowsVoiceTyperApp:
             "Local Whisper stays private and works offline after setup. "
             "Gemini sends each stopped recording to the Gemini API once."
         )
-        ttk.Label(main, text=note, wraplength=600, foreground="#555555").grid(row=9, column=0, columnspan=2, sticky=tk.EW, pady=(12, 4))
+        ttk.Label(main, text=note, wraplength=660, foreground="#555555").grid(row=14, column=0, columnspan=2, sticky=tk.EW, pady=(12, 4))
 
         def save_settings() -> None:
             if self.recorder.is_recording or self._busy:
@@ -1306,6 +1376,8 @@ class WindowsVoiceTyperApp:
             before_middle_suppress = False
             before_provider = self._transcription_provider()
             before_model = str(self.config.get("whisper_model", "small") or "small")
+            before_beam_size = int(self.config.get("whisper_beam_size", 3) or 3)
+            before_condition_previous = bool(self.config.get("whisper_condition_on_previous_text", False))
 
             device = device_label_to_value.get(device_var.get(), "auto")
             config["input_device"] = int(device) if str(device).isdigit() else "auto"
@@ -1319,6 +1391,12 @@ class WindowsVoiceTyperApp:
             config["middle_click_suppress_native"] = False
             config["transcription_provider"] = selected_provider()
             config["whisper_model"] = model_label_to_value.get(model_var.get(), "small")
+            config["whisper_beam_size"] = int(beam_label_to_value.get(beam_var.get(), 3) or 3)
+            config["whisper_condition_on_previous_text"] = bool(condition_previous_var.get())
+            config["postprocess_mode"] = selected_postprocess()
+            config["openai_compatible_base_url"] = ai_base_url_var.get().strip()
+            config["openai_compatible_model"] = ai_model_var.get().strip() or "gpt-4.1-mini"
+            config["openai_compatible_api_key_env"] = ai_key_env_var.get().strip() or "OPENAI_API_KEY"
             config["gemini_api_key_env"] = gemini_env_var.get().strip() or "GEMINI_API_KEY"
             config["launch_at_login"] = bool(launch_var.get())
 
@@ -1364,10 +1442,19 @@ class WindowsVoiceTyperApp:
             if self._transcription_provider() != before_provider:
                 self._log(f"settings applied: transcription_provider={self._transcription_provider()}")
 
-            if str(self.config.get("whisper_model", "small") or "small") != before_model:
+            if (
+                str(self.config.get("whisper_model", "small") or "small") != before_model
+                or int(self.config.get("whisper_beam_size", 3) or 3) != before_beam_size
+                or bool(self.config.get("whisper_condition_on_previous_text", False)) != before_condition_previous
+            ):
                 self.transcriber = self._make_transcriber()
                 self._model_warmup_thread = None
-                self._log(f"settings applied: whisper_model={self.config.get('whisper_model')}")
+                self._log(
+                    "settings applied: "
+                    f"whisper_model={self.config.get('whisper_model')} "
+                    f"beam_size={self.config.get('whisper_beam_size')} "
+                    f"condition_on_previous_text={self.config.get('whisper_condition_on_previous_text')}"
+                )
                 if bool(self.config.get("preload_model_at_startup", False)):
                     self._start_model_warmup()
 
@@ -1379,18 +1466,20 @@ class WindowsVoiceTyperApp:
             self._notify("Koe Kichi settings", "Settings saved.")
 
         button_frame = ttk.Frame(main)
-        button_frame.grid(row=10, column=0, columnspan=2, sticky=tk.EW, pady=(16, 0))
+        button_frame.grid(row=15, column=0, columnspan=2, sticky=tk.EW, pady=(16, 0))
         ttk.Button(button_frame, text="保存", command=save_settings).pack(side=tk.LEFT)
         ttk.Button(button_frame, text="閉じる", command=window.destroy).pack(side=tk.RIGHT)
-        ttk.Label(main, textvariable=status_var).grid(row=11, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
+        ttk.Label(main, textvariable=status_var).grid(row=16, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
 
         provider_var.trace_add("write", sync_gemini_state)
         gemini_env_var.trace_add("write", refresh_api_status)
         gemini_key_var.trace_add("write", mark_key_dirty)
+        postprocess_var.trace_add("write", sync_postprocess_state)
         gemini_key_entry.bind("<FocusIn>", clear_key_placeholder)
         sync_gemini_state()
         sync_hold_state()
         sync_middle_click_state()
+        sync_postprocess_state()
         window.focus_force()
 
     def _restart_keyboard_listener(self) -> None:

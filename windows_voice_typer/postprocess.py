@@ -18,8 +18,11 @@ class PostprocessResult:
 
 JAPANESE_CHARS = r"一-龠々〆ヵヶぁ-んァ-ン"
 COMMON_TRANSCRIPT_HALLUCINATIONS = (
+    "それではご視聴ありがとうございました",
+    "ではご視聴ありがとうございました",
     "ご視聴ありがとうございました",
     "ご清聴ありがとうございました",
+    "ご視聴ありがとうございます",
 )
 
 
@@ -182,6 +185,9 @@ def normalize_common_misrecognitions(text: str) -> str:
         ("ペンチマーク", "ベンチマーク"),
         ("グラッシュ", "クラッシュ"),
         ("ミスパー", "Whisper"),
+        ("自処的", "自動的"),
+        ("自処に", "自動的に"),
+        ("実過", "実装"),
         ("ジェミにAPI", "Gemini API"),
         ("ジェミニAPI", "Gemini API"),
         ("ジェミに", "Gemini"),
@@ -210,7 +216,8 @@ def collapse_repeated_phrases(text: str) -> str:
 def default_instructions(*, rewrite: bool) -> str:
     if rewrite:
         return (
-            "あなたは日本語音声入力の後処理器です。意味を変えず、読みやすい文章に軽く整えてください。"
+            "あなたは日本語音声入力の後処理器です。音声認識の誤字、明らかな同音誤変換、重複、句読点だけを直してください。"
+            "意味、語尾、話者の意図、情報量を変えず、要約や補足や言い換えをしないでください。"
             "内容を増やさず、URL、英数字、固有名詞、コード片は変更しないでください。"
             "説明や引用符を付けず、修正後の本文だけを返してください。"
         )
@@ -225,7 +232,7 @@ def default_instructions(*, rewrite: bool) -> str:
 
 def prompt_for_mode(text: str, *, rewrite: bool) -> str:
     if rewrite:
-        return f"次の音声入力文を整えてください。\n入力: {text}\n出力:"
+        return f"次の音声入力文の誤字、重複、句読点だけを軽く修正してください。意味は変えないでください。\n入力: {text}\n出力:"
     return f"次の本文に句読点だけを追加してください。読点は控えめにし、文末には句点を正確に入れてください。\n入力: {text}\n出力:"
 
 

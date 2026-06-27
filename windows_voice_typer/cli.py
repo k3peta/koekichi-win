@@ -107,7 +107,9 @@ def diagnose(config: dict, record_seconds: float = 0.0, check_model: bool = Fals
         f"compute_type={config.get('whisper_compute_type')} "
         f"cpu_fallback={config.get('whisper_cpu_fallback')} "
         f"cpu_threads={config.get('whisper_cpu_threads', 'auto')} "
-        f"num_workers={config.get('whisper_num_workers', 1)}"
+        f"num_workers={config.get('whisper_num_workers', 1)} "
+        f"beam_size={config.get('whisper_beam_size', 3)} "
+        f"condition_on_previous_text={config.get('whisper_condition_on_previous_text', False)}"
     )
     print(f"postprocess_mode: {config.get('postprocess_mode')}")
     print(f"input_device: {config.get('input_device')}")
@@ -146,6 +148,8 @@ def diagnose(config: dict, record_seconds: float = 0.0, check_model: bool = Fals
             cpu_fallback=bool(config.get("whisper_cpu_fallback", True)),
             cpu_threads=config.get("whisper_cpu_threads", "auto"),
             num_workers=int(config.get("whisper_num_workers", 1) or 1),
+            beam_size=int(config.get("whisper_beam_size", 3) or 3),
+            condition_on_previous_text=bool(config.get("whisper_condition_on_previous_text", False)),
         )
         transcriber._ensure_model()
         print("whisper_model_loaded: true")
@@ -172,6 +176,8 @@ def transcribe_file_with_config(path: Path, config: dict) -> str:
         cpu_fallback=bool(config.get("whisper_cpu_fallback", True)),
         cpu_threads=config.get("whisper_cpu_threads", "auto"),
         num_workers=int(config.get("whisper_num_workers", 1) or 1),
+        beam_size=int(config.get("whisper_beam_size", 3) or 3),
+        condition_on_previous_text=bool(config.get("whisper_condition_on_previous_text", False)),
     )
     return transcriber.transcribe(path, prompt=str(config.get("whisper_prompt", "")))
 

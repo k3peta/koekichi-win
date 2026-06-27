@@ -20,13 +20,17 @@ faster-whisper by default, and pastes the result into the current text field.
 - Dictionary: register spoken forms such as `春シネーション` to
   `ハルシネーション`.
 - Whisper model selection: `small`, `medium`, `large-v3`, and `turbo`.
+- Whisper accuracy selection: beam size `1`, `3`, or `5`.
+- Optional AI text correction through an OpenAI-compatible endpoint such as
+  OpenAI API or local Ollama.
 
 ## Install
 
 1. Download and unzip the Windows source package.
 2. Double-click `Install-KoeKichi.cmd`.
-3. Choose microphone, activation key, Whisper model, transcription backend, and
-   login startup behavior during initial setup.
+3. Choose microphone, activation key, Whisper model/accuracy, transcription
+   backend, text correction mode, and login startup behavior during initial
+   setup.
 4. Start Koe Kichi from the Start Menu.
 
 The installer creates a Python 3.11 virtual environment under
@@ -43,11 +47,15 @@ Open settings from the task tray icon or Start Menu. You can change:
 - middle-click recording
 - transcription backend
 - Whisper model
+- Whisper accuracy
+- text correction mode
+- OpenAI-compatible AI correction endpoint/model/key environment variable
 - Gemini API key environment variable
 - launch-at-login
 
-Gemini API keys are saved to the user environment variable you choose. API keys
-are not stored in this repository, dictionary, history, or release package.
+Gemini and AI correction API keys are saved to the user environment variable
+you choose. API keys are not stored in this repository, dictionary, history, or
+release package.
 
 ## Model Notes
 
@@ -55,6 +63,16 @@ are not stored in this repository, dictionary, history, or release package.
 ordinary Windows machines. `turbo` is based on `large-v3` and can be a strong
 speed/accuracy choice on GPU-equipped machines, but it is still much larger than
 `small`; CPU-only machines may not benefit enough to make it the default.
+
+Beam size controls the speed/accuracy tradeoff for local Whisper. `1` is the
+fastest, `3` is the balanced default, and `5` can reduce recognition mistakes at
+the cost of more CPU time. Koe Kichi disables Whisper previous-text conditioning
+by default to reduce repeated phrases and transcript hallucinations.
+
+The default text correction mode is local fixed correction, which is fast and
+private. AI correction is optional and should be treated as a light cleanup pass:
+it is prompted to fix recognition mistakes, repetition, and punctuation without
+adding meaning.
 
 If the selected Whisper model is not downloaded yet, choose
 `モデルセットアップ...` from the task tray menu. Koe Kichi also starts model

@@ -9,7 +9,9 @@ from typing import Any
 from .config import default_config_path
 from .config import ensure_config
 from .config import load_config
+from .config import POSTPROCESS_MODE_OPTIONS
 from .config import save_config
+from .config import WHISPER_BEAM_SIZE_OPTIONS
 from .config import WHISPER_MODEL_OPTIONS
 from .dictionary import VoiceDictionary
 
@@ -124,7 +126,7 @@ def _check_audio(config: dict[str, Any]) -> bool:
 
 def _run_initial_settings(config: dict[str, Any], config_path: Any) -> dict[str, Any]:
     print("[Initial settings]")
-    print("Choose a microphone, activation key, Whisper model, transcription backend, and login startup behavior.")
+    print("Choose a microphone, activation key, Whisper accuracy, transcription backend, correction mode, and login startup behavior.")
     print("Press Enter to keep the current value.")
     print("")
     config = dict(config)
@@ -137,10 +139,26 @@ def _run_initial_settings(config: dict[str, Any], config_path: Any) -> dict[str,
         config["hold_to_record"] = False
         config["double_tap_to_toggle"] = True
     config["whisper_model"] = _choose_whisper_model(str(config.get("whisper_model", "small") or "small"))
+    config["whisper_beam_size"] = _choose_whisper_beam_size(int(config.get("whisper_beam_size", 3) or 3))
+    config["whisper_condition_on_previous_text"] = _choose_previous_text_context(
+        bool(config.get("whisper_condition_on_previous_text", False))
+    )
     selected_provider = _choose_transcription_provider(str(config.get("transcription_provider", "local_whisper")))
     config["transcription_provider"] = selected_provider
     if selected_provider == "gemini_audio":
         config["gemini_api_key_env"] = _choose_gemini_api_key_env(str(config.get("gemini_api_key_env", "GEMINI_API_KEY")))
+    postprocess_mode = _choose_postprocess_mode(str(config.get("postprocess_mode", "local_punctuation") or "local_punctuation"))
+    config["postprocess_mode"] = postprocess_mode
+    if postprocess_mode.startswith("openai_compatible_"):
+        config["openai_compatible_base_url"] = _choose_openai_compatible_base_url(
+            str(config.get("openai_compatible_base_url", "") or "")
+        )
+        config["openai_compatible_model"] = _choose_openai_compatible_model(
+            str(config.get("openai_compatible_model", "gpt-4.1-mini") or "gpt-4.1-mini")
+        )
+        config["openai_compatible_api_key_env"] = _choose_openai_compatible_api_key_env(
+            str(config.get("openai_compatible_api_key_env", "OPENAI_API_KEY") or "OPENAI_API_KEY")
+        )
     launch_at_login = _choose_launch_at_login(bool(config.get("launch_at_login", False)))
     config["launch_at_login"] = launch_at_login
     save_config(config, config_path)
@@ -150,6 +168,8 @@ def _run_initial_settings(config: dict[str, Any], config_path: Any) -> dict[str,
         f"input_device={config.get('input_device')} "
         f"record_key={config.get('record_key')} "
         f"whisper_model={config.get('whisper_model')} "
+        f"whisper_beam_size={config.get('whisper_beam_size')} "
+        f"postprocess_mode={config.get('postprocess_mode')} "
         f"launch_at_login={config.get('launch_at_login')} "
         f"transcription_provider={config.get('transcription_provider')}"
     )
@@ -246,6 +266,42 @@ def _choose_whisper_model(current: str) -> str:
     return choices[index][0]
 
 
+def _choose_whisper_beam_size(current: int) -> int:
+    choices = list(WHISPER_BEAM_SIZE_OPTIONS)
+    if current and current not in {value for value, _label in choices}:
+        choices.append((current, f"{current} - current custom value"))
+    print("")
+    print("Whisper accuracy:")
+    for number, (value, label) in enumerate(choices, start=1):
+        marker = " *" if int(current or 0) == int(value) else ""
+        print(f"  {number}: {label}{marker}")
+    choice = input(f"Whisper accuracy [1-{len(choices)}, Enter=current]: ").strip()
+    if not choice:
+        return current or 3
+    try:
+        index = int(choice) - 1
+    except ValueError:
+        print("Invalid Whisper accuracy choice. Keeping the current value.")
+        return current
+    if not 0 <= index < len(choices):
+        print("Invalid Whisper accuracy choice. Keeping the current value.")
+        return current
+    return int(choices[index][0])
+
+
+def _choose_previous_text_context(current: bool) -> bool:
+    label = "yes" if current else "no"
+    choice = input(f"Use previous text context in Whisper? [y/n, Enter={label}]: ").strip().lower()
+    if not choice:
+        return current
+    if choice in ("y", "yes", "1", "true", "on"):
+        return True
+    if choice in ("n", "no", "0", "false", "off"):
+        return False
+    print("Invalid context choice. Keeping the current value.")
+    return current
+
+
 def _choose_launch_at_login(current: bool) -> bool:
     label = "yes" if current else "no"
     choice = input(f"Launch Koe Kichi when you sign in? [y/n, Enter={label}]: ").strip().lower()
@@ -281,6 +337,47 @@ def _choose_transcription_provider(current: str) -> str:
         print("Invalid transcription backend choice. Keeping the current value.")
         return current
     return choices[index][0]
+
+
+def _choose_postprocess_mode(current: str) -> str:
+    choices = list(POSTPROCESS_MODE_OPTIONS)
+    if current and current not in {mode for mode, _label in choices}:
+        choices.append((current, f"{current} - current custom mode"))
+    print("")
+    print("Text correction:")
+    for number, (mode, label) in enumerate(choices, start=1):
+        marker = " *" if current.lower() == mode.lower() else ""
+        print(f"  {number}: {label}{marker}")
+    choice = input(f"Text correction [1-{len(choices)}, Enter=current]: ").strip()
+    if not choice:
+        return current or "local_punctuation"
+    try:
+        index = int(choice) - 1
+    except ValueError:
+        print("Invalid text correction choice. Keeping the current value.")
+        return current
+    if not 0 <= index < len(choices):
+        print("Invalid text correction choice. Keeping the current value.")
+        return current
+    return choices[index][0]
+
+
+def _choose_openai_compatible_base_url(current: str) -> str:
+    label = current or "https://api.openai.com/v1"
+    choice = input(f"AI correction OpenAI-compatible base URL [Enter={label}]: ").strip()
+    return choice or current
+
+
+def _choose_openai_compatible_model(current: str) -> str:
+    current = current or "gpt-4.1-mini"
+    choice = input(f"AI correction model [Enter={current}]: ").strip()
+    return choice or current
+
+
+def _choose_openai_compatible_api_key_env(current: str) -> str:
+    current = current or "OPENAI_API_KEY"
+    choice = input(f"AI correction API key environment variable [Enter={current}]: ").strip()
+    return choice or current
 
 
 def _choose_gemini_api_key_env(current: str) -> str:
