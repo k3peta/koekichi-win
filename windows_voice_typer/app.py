@@ -96,6 +96,9 @@ class WindowsVoiceTyperApp:
         self.log_path = app_data_dir() / "koe-kichi.log"
         self.history_path = app_data_dir() / "history.json"
         self._history_lock = threading.Lock()
+        self._whisper_hints_lock = threading.Lock()
+        self._whisper_hints_cache_key = None
+        self._whisper_hints_cache = None
 
     def _make_transcriber(self) -> FasterWhisperTranscriber:
         return FasterWhisperTranscriber(
@@ -111,7 +114,35 @@ class WindowsVoiceTyperApp:
         )
 
     def _whisper_hints(self) -> Any:
-        return build_whisper_hints(self.config, self.dictionary)
+        key = self._whisper_hints_cache_token()
+        with self._whisper_hints_lock:
+            if self._whisper_hints_cache_key == key and self._whisper_hints_cache is not None:
+                return self._whisper_hints_cache
+            hints = build_whisper_hints(self.config, self.dictionary)
+            self._whisper_hints_cache_key = key
+            self._whisper_hints_cache = hints
+            return hints
+
+    def _whisper_hints_cache_token(self) -> tuple[Any, ...]:
+        dictionary_token = None
+        try:
+            stat = self.dictionary.path.stat()
+            dictionary_token = (stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            pass
+        return (
+            dictionary_token,
+            str(self.config.get("whisper_prompt", "")),
+            bool(self.config.get("whisper_auto_prompt_hints_enabled", True)),
+            bool(self.config.get("whisper_hotwords_enabled", False)),
+            str(self.config.get("whisper_hint_max_terms", 40)),
+            str(self.config.get("whisper_hotwords_max_terms", 20)),
+        )
+
+    def _invalidate_whisper_hints(self) -> None:
+        with self._whisper_hints_lock:
+            self._whisper_hints_cache_key = None
+            self._whisper_hints_cache = None
 
     def _transcription_provider(self) -> str:
         return str(self.config.get("transcription_provider", "local_whisper")).strip().lower()
@@ -1443,6 +1474,7 @@ class WindowsVoiceTyperApp:
 
             save_config(config, config_path)
             self.config.update(load_config(config_path))
+            self._invalidate_whisper_hints()
 
             startup_result = ""
             try:
@@ -1592,6 +1624,7 @@ class WindowsVoiceTyperApp:
         def refresh() -> None:
             try:
                 self.dictionary.load()
+                self._invalidate_whisper_hints()
             except Exception:
                 pass
             rule_list.delete(0, tk.END)
@@ -1621,6 +1654,7 @@ class WindowsVoiceTyperApp:
             if not replaced:
                 rules.append({"from": source, "to": target, "mode": "literal"})
             self.dictionary.save()
+            self._invalidate_whisper_hints()
             source_var.set("")
             target_var.set("")
             status_var.set("\u4fdd\u5b58\u3057\u307e\u3057\u305f")
@@ -1638,6 +1672,7 @@ class WindowsVoiceTyperApp:
                 if 0 <= index < len(rules):
                     removed = rules.pop(index)
                     self.dictionary.save()
+                    self._invalidate_whisper_hints()
                     status_var.set("\u524a\u9664\u3057\u307e\u3057\u305f")
                     self._log(f"dictionary rule removed: {removed}")
             finally:
