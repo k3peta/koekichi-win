@@ -16,6 +16,7 @@ from .clipboard import copy_text
 from .clipboard import get_focus_window
 from .clipboard import get_foreground_window
 from .clipboard import paste_text
+from .clipboard import restore_focus
 from .config import app_data_dir
 from .config import default_config_path
 from .config import load_config
@@ -132,6 +133,9 @@ class WindowsVoiceTyperApp:
             self._paste_target_focus_hwnd = int(target_focus_hwnd or get_focus_window() or 0)
             self._transition_locked(AppState.STARTING, "start requested")
             self._log(f"paste target hwnd: {self._paste_target_hwnd} focus: {self._paste_target_focus_hwnd}")
+        if self._paste_target_hwnd:
+            restored = restore_focus(self._paste_target_hwnd, self._paste_target_focus_hwnd)
+            self._log(f"focus restore after start request: {restored}")
         try:
             self.recorder.start()
         except Exception as error:
@@ -175,6 +179,9 @@ class WindowsVoiceTyperApp:
             self._streaming_session = None
             self._transition_locked(AppState.PROCESSING, "audio captured")
         self._log(f"recording stopped: {audio_path}")
+        if self._paste_target_hwnd:
+            restored = restore_focus(self._paste_target_hwnd, self._paste_target_focus_hwnd)
+            self._log(f"focus restore after stop request: {restored}")
         self._set_status("Transcribing...")
         threading.Thread(target=self._transcribe_and_paste, args=(audio_path, streaming_session), daemon=True).start()
         return True
@@ -521,14 +528,20 @@ class WindowsVoiceTyperApp:
         if backend != "low_level":
             from .polling_input import PollingDoubleTapListener
 
-            def on_double_tap() -> None:
+            def get_target() -> tuple[int, int]:
+                if self.recorder.is_recording or self._busy:
+                    return 0, 0
+                return get_foreground_window(), get_focus_window()
+
+            def on_double_tap(target_hwnd: int = 0, target_focus_hwnd: int = 0) -> None:
                 self._log(f"{record_key} double tap detected")
-                self.toggle_recording()
+                self.toggle_recording(target_hwnd=target_hwnd, target_focus_hwnd=target_focus_hwnd)
 
             listener = PollingDoubleTapListener(
                 key=record_key,
                 interval_seconds=double_tap_interval,
                 callback=on_double_tap,
+                get_target=get_target,
             )
             listener.start()
             self._log(f"keyboard listener started: record_key={record_key}, mode=polling_double_tap")

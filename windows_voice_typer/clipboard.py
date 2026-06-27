@@ -89,6 +89,12 @@ def paste_text(
         pyperclip.copy(previous)
 
 
+def restore_focus(target_hwnd: int | None, target_focus_hwnd: int | None = None) -> bool:
+    if not target_hwnd:
+        return False
+    return _activate_window(int(target_hwnd), int(target_focus_hwnd or 0))
+
+
 def copy_text(text: str) -> None:
     import pyperclip
 
