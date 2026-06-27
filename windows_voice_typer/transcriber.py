@@ -35,16 +35,17 @@ class FasterWhisperTranscriber:
     def ensure_model(self) -> None:
         self._ensure_model()
 
-    def transcribe(self, path: str | Path, prompt: str = "") -> str:
-        return "".join(segment["text"] for segment in self.transcribe_segments(path, prompt=prompt)).strip()
+    def transcribe(self, path: str | Path, prompt: str = "", hotwords: str | None = None) -> str:
+        return "".join(segment["text"] for segment in self.transcribe_segments(path, prompt=prompt, hotwords=hotwords)).strip()
 
-    def transcribe_segments(self, path: str | Path, prompt: str = "") -> list[dict[str, Any]]:
+    def transcribe_segments(self, path: str | Path, prompt: str = "", hotwords: str | None = None) -> list[dict[str, Any]]:
         model = self._ensure_model()
         with self._transcribe_lock:
             segments, _info = model.transcribe(
                 str(path),
                 language=self.language,
                 initial_prompt=prompt or None,
+                hotwords=hotwords or None,
                 vad_filter=True,
                 beam_size=self.beam_size,
                 condition_on_previous_text=self.condition_on_previous_text,

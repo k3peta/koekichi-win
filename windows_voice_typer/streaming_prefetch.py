@@ -28,6 +28,8 @@ class StreamingPrefetchSession:
         transcriber: Any,
         config: dict[str, Any],
         log: LogCallback,
+        whisper_prompt: str = "",
+        whisper_hotwords: str | None = None,
     ):
         self.recorder = recorder
         self.transcriber = transcriber
@@ -46,7 +48,9 @@ class StreamingPrefetchSession:
         self._lock = threading.Lock()
         self._windows: list[PrefetchWindow] = []
         self._next_start_sample = 0
-        self._prompt = str(config.get("whisper_prompt", ""))
+        self._base_prompt = str(whisper_prompt or "").strip()
+        self._rolling_prompt = ""
+        self._hotwords = whisper_hotwords or None
         self._started_at = time.perf_counter()
         self._errors: list[str] = []
 
@@ -128,7 +132,11 @@ class StreamingPrefetchSession:
         try:
             path = self.recorder.audio_to_wav(chunk)
             started = time.perf_counter()
-            segments = self.transcriber.transcribe_segments(path, prompt=self._prompt)
+            segments = self.transcriber.transcribe_segments(
+                path,
+                prompt=self._compose_prompt(),
+                hotwords=self._hotwords,
+            )
             seconds = time.perf_counter() - started
         except Exception as error:
             message = f"streaming prefetch window failed: {error}"
@@ -157,12 +165,15 @@ class StreamingPrefetchSession:
                     segments=segments,
                 )
             )
-            self._prompt = self._merged_text_unlocked(end_seconds)[-self.prompt_chars :]
+            self._rolling_prompt = self._merged_text_unlocked(end_seconds)[-self.prompt_chars :]
         self.log(
             "streaming prefetch window: "
             f"{start_seconds:.2f}-{end_seconds:.2f}s segments={len(segments)} seconds={seconds:.2f}"
         )
         return True
+
+    def _compose_prompt(self) -> str:
+        return "\n".join(part for part in (self._base_prompt, self._rolling_prompt) if part).strip()
 
     def _merged_text(self, total_seconds: float) -> str:
         with self._lock:

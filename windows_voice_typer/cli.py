@@ -16,6 +16,7 @@ from .gemini_transcriber import GeminiAudioTranscriber
 from .gemini_transcriber import get_api_key
 from .postprocess import postprocess
 from .transcriber import FasterWhisperTranscriber
+from .whisper_hints import build_whisper_hints
 
 
 def _configure_console() -> None:
@@ -61,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"dictionary: {dictionary.path}")
         return 0
     if args.command == "diagnose":
-        return diagnose(config, record_seconds=args.record_seconds, check_model=args.check_model)
+        return diagnose(config, dictionary, record_seconds=args.record_seconds, check_model=args.check_model)
     if args.command == "setup":
         from .setup import run_setup_check
 
@@ -95,11 +96,14 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
-def diagnose(config: dict, record_seconds: float = 0.0, check_model: bool = False) -> int:
+def diagnose(config: dict, dictionary: VoiceDictionary, record_seconds: float = 0.0, check_model: bool = False) -> int:
     print(f"system: {platform.platform()}")
     print(f"python: {sys.executable}")
     print(f"config: {default_config_path()}")
     print(f"dictionary: {config.get('dictionary_path')}")
+    hints = build_whisper_hints(config, dictionary)
+    prompt_limit = _safe_int(config.get("whisper_hint_max_terms", 40), 40)
+    hotword_limit = _safe_int(config.get("whisper_hotwords_max_terms", 20), 20)
     print(
         "whisper: "
         f"model={config.get('whisper_model')} "
@@ -111,6 +115,20 @@ def diagnose(config: dict, record_seconds: float = 0.0, check_model: bool = Fals
         f"beam_size={config.get('whisper_beam_size', 3)} "
         f"condition_on_previous_text={config.get('whisper_condition_on_previous_text', False)}"
     )
+    print(
+        "whisper_hints: "
+        f"auto_prompt_hints_enabled={config.get('whisper_auto_prompt_hints_enabled', True)} "
+        f"hotwords_enabled={config.get('whisper_hotwords_enabled', False)} "
+        f"hint_max_terms={prompt_limit} "
+        f"hotwords_max_terms={hotword_limit} "
+        f"candidate_terms={len(hints.terms)} "
+        f"prompt_terms={min(len(hints.terms), prompt_limit)} "
+        f"hotword_terms={min(len(hints.terms), hotword_limit)}"
+    )
+    if hints.prompt:
+        print(f"whisper_prompt_preview: {hints.prompt[:140]}")
+    if hints.hotwords:
+        print(f"whisper_hotwords_preview: {hints.hotwords[:140]}")
     print(f"postprocess_mode: {config.get('postprocess_mode')}")
     print(f"input_device: {config.get('input_device')}")
     print(f"record_key: {config.get('record_key')}")
@@ -156,7 +174,16 @@ def diagnose(config: dict, record_seconds: float = 0.0, check_model: bool = Fals
     return 0
 
 
+def _safe_int(value: object, default: int) -> int:
+    try:
+        return max(0, int(value or default))
+    except (TypeError, ValueError):
+        return max(0, default)
+
+
 def transcribe_file_with_config(path: Path, config: dict) -> str:
+    dictionary = VoiceDictionary(str(config["dictionary_path"]))
+    dictionary.ensure()
     provider = str(config.get("transcription_provider", "local_whisper")).strip().lower()
     if provider == "gemini_audio":
         try:
@@ -179,7 +206,8 @@ def transcribe_file_with_config(path: Path, config: dict) -> str:
         beam_size=int(config.get("whisper_beam_size", 3) or 3),
         condition_on_previous_text=bool(config.get("whisper_condition_on_previous_text", False)),
     )
-    return transcriber.transcribe(path, prompt=str(config.get("whisper_prompt", "")))
+    hints = build_whisper_hints(config, dictionary)
+    return transcriber.transcribe(path, prompt=hints.prompt, hotwords=hints.hotwords)
 
 
 if __name__ == "__main__":

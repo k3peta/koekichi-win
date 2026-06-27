@@ -33,6 +33,7 @@ from .postprocess import postprocess
 from .recorder import Recorder
 from .streaming_prefetch import StreamingPrefetchSession
 from .transcriber import FasterWhisperTranscriber
+from .whisper_hints import build_whisper_hints
 
 
 class AppState(str, Enum):
@@ -108,6 +109,9 @@ class WindowsVoiceTyperApp:
             beam_size=int(self.config.get("whisper_beam_size", 3) or 3),
             condition_on_previous_text=bool(self.config.get("whisper_condition_on_previous_text", False)),
         )
+
+    def _whisper_hints(self) -> Any:
+        return build_whisper_hints(self.config, self.dictionary)
 
     def _transcription_provider(self) -> str:
         return str(self.config.get("transcription_provider", "local_whisper")).strip().lower()
@@ -245,11 +249,14 @@ class WindowsVoiceTyperApp:
         if not bool(self.config.get("streaming_prefetch_enabled", True)):
             return
         try:
+            hints = self._whisper_hints()
             session = StreamingPrefetchSession(
                 recorder=self.recorder,
                 transcriber=self.transcriber,
                 config=self.config,
                 log=self._log,
+                whisper_prompt=hints.prompt,
+                whisper_hotwords=hints.hotwords,
             )
             session.start()
             self._streaming_session = session
@@ -418,7 +425,7 @@ class WindowsVoiceTyperApp:
                 timings[name] = time.perf_counter() - started
 
         try:
-            prompt = str(self.config.get("whisper_prompt", ""))
+            hints = self._whisper_hints()
             mode = "full"
             raw = ""
             provider = self._transcription_provider()
@@ -449,7 +456,10 @@ class WindowsVoiceTyperApp:
                     self._log(f"streaming prefetch fallback: {error}")
                     raw = ""
             if not raw:
-                raw = timed("local_transcribe", lambda: self.transcriber.transcribe(audio_path, prompt=prompt))
+                raw = timed(
+                    "local_transcribe",
+                    lambda: self.transcriber.transcribe(audio_path, prompt=hints.prompt, hotwords=hints.hotwords),
+                )
             timings["transcription_total"] = sum(
                 timings.get(name, 0.0)
                 for name in ("gemini_transcribe", "streaming_prefetch_finish", "local_transcribe")
@@ -1160,6 +1170,12 @@ class WindowsVoiceTyperApp:
         condition_previous_var = tk.BooleanVar(
             value=bool(current.get("whisper_condition_on_previous_text", False))
         )
+        auto_prompt_hints_var = tk.BooleanVar(
+            value=bool(current.get("whisper_auto_prompt_hints_enabled", True))
+        )
+        hotwords_enabled_var = tk.BooleanVar(
+            value=bool(current.get("whisper_hotwords_enabled", False))
+        )
         postprocess_options = list(POSTPROCESS_MODE_OPTIONS)
         postprocess_value = str(current.get("postprocess_mode", "local_punctuation") or "local_punctuation")
         if not any(value == postprocess_value for value, _label in postprocess_options):
@@ -1308,38 +1324,52 @@ class WindowsVoiceTyperApp:
             variable=condition_previous_var,
         ).grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
 
-        ttk.Label(main, text="Text correction").grid(row=7, column=0, sticky=tk.W, pady=6)
+        ttk.Label(main, text="Whisper hints").grid(row=7, column=0, sticky=tk.W, pady=6)
+        hints_row = ttk.Frame(main)
+        hints_row.grid(row=7, column=1, sticky=tk.EW, pady=6)
+        ttk.Checkbutton(
+            hints_row,
+            text="Use auto prompt hints",
+            variable=auto_prompt_hints_var,
+        ).grid(row=0, column=0, sticky=tk.W)
+        ttk.Checkbutton(
+            hints_row,
+            text="Use strong hotwords",
+            variable=hotwords_enabled_var,
+        ).grid(row=1, column=0, sticky=tk.W, pady=(4, 0))
+
+        ttk.Label(main, text="Text correction").grid(row=8, column=0, sticky=tk.W, pady=6)
         postprocess_box = ttk.Combobox(
             main,
             textvariable=postprocess_var,
             values=[label for _value, label in postprocess_options],
             state="readonly",
         )
-        postprocess_box.grid(row=7, column=1, sticky=tk.EW, pady=6)
+        postprocess_box.grid(row=8, column=1, sticky=tk.EW, pady=6)
 
-        ttk.Label(main, text="AI correction URL").grid(row=8, column=0, sticky=tk.W, pady=6)
+        ttk.Label(main, text="AI correction URL").grid(row=9, column=0, sticky=tk.W, pady=6)
         ai_base_url_entry = ttk.Entry(main, textvariable=ai_base_url_var)
-        ai_base_url_entry.grid(row=8, column=1, sticky=tk.EW, pady=6)
+        ai_base_url_entry.grid(row=9, column=1, sticky=tk.EW, pady=6)
 
-        ttk.Label(main, text="AI correction model").grid(row=9, column=0, sticky=tk.W, pady=6)
+        ttk.Label(main, text="AI correction model").grid(row=10, column=0, sticky=tk.W, pady=6)
         ai_model_entry = ttk.Entry(main, textvariable=ai_model_var)
-        ai_model_entry.grid(row=9, column=1, sticky=tk.EW, pady=6)
+        ai_model_entry.grid(row=10, column=1, sticky=tk.EW, pady=6)
 
-        ttk.Label(main, text="AI correction key env").grid(row=10, column=0, sticky=tk.W, pady=6)
+        ttk.Label(main, text="AI correction key env").grid(row=11, column=0, sticky=tk.W, pady=6)
         ai_key_env_entry = ttk.Entry(main, textvariable=ai_key_env_var)
-        ai_key_env_entry.grid(row=10, column=1, sticky=tk.EW, pady=6)
+        ai_key_env_entry.grid(row=11, column=1, sticky=tk.EW, pady=6)
 
-        ttk.Label(main, text="Gemini API key env").grid(row=11, column=0, sticky=tk.W, pady=6)
+        ttk.Label(main, text="Gemini API key env").grid(row=12, column=0, sticky=tk.W, pady=6)
         gemini_row = ttk.Frame(main)
-        gemini_row.grid(row=11, column=1, sticky=tk.EW, pady=6)
+        gemini_row.grid(row=12, column=1, sticky=tk.EW, pady=6)
         gemini_row.columnconfigure(0, weight=1)
         gemini_env_entry = ttk.Entry(gemini_row, textvariable=gemini_env_var)
         gemini_env_entry.grid(row=0, column=0, sticky=tk.EW)
         ttk.Label(gemini_row, textvariable=api_status_var).grid(row=0, column=1, padx=(10, 0))
 
-        ttk.Label(main, text="Gemini API key").grid(row=12, column=0, sticky=tk.W, pady=6)
+        ttk.Label(main, text="Gemini API key").grid(row=13, column=0, sticky=tk.W, pady=6)
         key_row = ttk.Frame(main)
-        key_row.grid(row=12, column=1, sticky=tk.EW, pady=6)
+        key_row.grid(row=13, column=1, sticky=tk.EW, pady=6)
         key_row.columnconfigure(0, weight=1)
         gemini_key_entry = ttk.Entry(key_row, textvariable=gemini_key_var, show="\u25cf")
         gemini_key_entry.grid(row=0, column=0, sticky=tk.EW)
@@ -1347,7 +1377,7 @@ class WindowsVoiceTyperApp:
         paste_key_button.grid(row=0, column=1, padx=(8, 0))
 
         ttk.Checkbutton(main, text="Launch Koe Kichi when I sign in", variable=launch_var).grid(
-            row=13,
+            row=14,
             column=1,
             sticky=tk.W,
             pady=6,
@@ -1357,7 +1387,7 @@ class WindowsVoiceTyperApp:
             "Local Whisper stays private and works offline after setup. "
             "Gemini sends each stopped recording to the Gemini API once."
         )
-        ttk.Label(main, text=note, wraplength=660, foreground="#555555").grid(row=14, column=0, columnspan=2, sticky=tk.EW, pady=(12, 4))
+        ttk.Label(main, text=note, wraplength=660, foreground="#555555").grid(row=15, column=0, columnspan=2, sticky=tk.EW, pady=(12, 4))
 
         def save_settings() -> None:
             if self.recorder.is_recording or self._busy:
@@ -1378,6 +1408,8 @@ class WindowsVoiceTyperApp:
             before_model = str(self.config.get("whisper_model", "small") or "small")
             before_beam_size = int(self.config.get("whisper_beam_size", 3) or 3)
             before_condition_previous = bool(self.config.get("whisper_condition_on_previous_text", False))
+            before_auto_prompt_hints = bool(self.config.get("whisper_auto_prompt_hints_enabled", True))
+            before_hotwords_enabled = bool(self.config.get("whisper_hotwords_enabled", False))
 
             device = device_label_to_value.get(device_var.get(), "auto")
             config["input_device"] = int(device) if str(device).isdigit() else "auto"
@@ -1393,6 +1425,8 @@ class WindowsVoiceTyperApp:
             config["whisper_model"] = model_label_to_value.get(model_var.get(), "small")
             config["whisper_beam_size"] = int(beam_label_to_value.get(beam_var.get(), 3) or 3)
             config["whisper_condition_on_previous_text"] = bool(condition_previous_var.get())
+            config["whisper_auto_prompt_hints_enabled"] = bool(auto_prompt_hints_var.get())
+            config["whisper_hotwords_enabled"] = bool(hotwords_enabled_var.get())
             config["postprocess_mode"] = selected_postprocess()
             config["openai_compatible_base_url"] = ai_base_url_var.get().strip()
             config["openai_compatible_model"] = ai_model_var.get().strip() or "gpt-4.1-mini"
@@ -1458,6 +1492,16 @@ class WindowsVoiceTyperApp:
                 if bool(self.config.get("preload_model_at_startup", False)):
                     self._start_model_warmup()
 
+            if (
+                bool(self.config.get("whisper_auto_prompt_hints_enabled", True)) != before_auto_prompt_hints
+                or bool(self.config.get("whisper_hotwords_enabled", False)) != before_hotwords_enabled
+            ):
+                self._log(
+                    "settings applied: "
+                    f"whisper_auto_prompt_hints_enabled={self.config.get('whisper_auto_prompt_hints_enabled')} "
+                    f"whisper_hotwords_enabled={self.config.get('whisper_hotwords_enabled')}"
+                )
+
             refresh_api_status()
             status = "保存しました。"
             if startup_result:
@@ -1466,10 +1510,10 @@ class WindowsVoiceTyperApp:
             self._notify("Koe Kichi settings", "Settings saved.")
 
         button_frame = ttk.Frame(main)
-        button_frame.grid(row=15, column=0, columnspan=2, sticky=tk.EW, pady=(16, 0))
+        button_frame.grid(row=16, column=0, columnspan=2, sticky=tk.EW, pady=(16, 0))
         ttk.Button(button_frame, text="保存", command=save_settings).pack(side=tk.LEFT)
         ttk.Button(button_frame, text="閉じる", command=window.destroy).pack(side=tk.RIGHT)
-        ttk.Label(main, textvariable=status_var).grid(row=16, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
+        ttk.Label(main, textvariable=status_var).grid(row=17, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
 
         provider_var.trace_add("write", sync_gemini_state)
         gemini_env_var.trace_add("write", refresh_api_status)

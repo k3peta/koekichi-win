@@ -21,6 +21,8 @@ faster-whisper by default, and pastes the result into the current text field.
   `ハルシネーション`.
 - Whisper model selection: `small`, `medium`, `large-v3`, and `turbo`.
 - Whisper accuracy selection: beam size `1`, `3`, or `5`.
+- Whisper hints: safe auto prompt hints are on by default, while stronger
+  `hotwords` stay off unless you enable them.
 - Optional AI text correction through an OpenAI-compatible endpoint such as
   OpenAI API or local Ollama.
 
@@ -68,6 +70,12 @@ Beam size controls the speed/accuracy tradeoff for local Whisper. `1` is the
 fastest, `3` is the balanced default, and `5` can reduce recognition mistakes at
 the cost of more CPU time. Koe Kichi disables Whisper previous-text conditioning
 by default to reduce repeated phrases and transcript hallucinations.
+
+Whisper hinting is intentionally conservative. Koe Kichi pulls short canonical
+terms from dictionary replacement targets plus URL titles, feeds them into
+`initial_prompt` as a light hint, and keeps `hotwords` off by default because
+they are much more forceful. The automatic hint list is short, deduplicated,
+and capped so it does not turn into a giant pronunciation dump.
 
 The default text correction mode is local fixed correction, which is fast and
 private. AI correction is optional and should be treated as a light cleanup pass:
