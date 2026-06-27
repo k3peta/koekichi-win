@@ -95,6 +95,30 @@ def restore_focus(target_hwnd: int | None, target_focus_hwnd: int | None = None)
     return _activate_window(int(target_hwnd), int(target_focus_hwnd or 0))
 
 
+def clear_alt_menu_focus(target_hwnd: int | None, target_focus_hwnd: int | None = None) -> bool:
+    if not target_hwnd:
+        return False
+    restored = _activate_window(int(target_hwnd), int(target_focus_hwnd or 0))
+    try:
+        from pynput.keyboard import Controller
+        from pynput.keyboard import Key
+
+        keyboard = Controller()
+        for key in (Key.alt, Key.alt_l, Key.alt_r):
+            try:
+                keyboard.release(key)
+            except Exception:
+                pass
+        time.sleep(0.03)
+        keyboard.press(Key.esc)
+        time.sleep(0.02)
+        keyboard.release(Key.esc)
+        time.sleep(0.06)
+    except Exception:
+        return restored
+    return _activate_window(int(target_hwnd), int(target_focus_hwnd or 0)) or restored
+
+
 def copy_text(text: str) -> None:
     import pyperclip
 

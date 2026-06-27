@@ -12,6 +12,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from .clipboard import clear_alt_menu_focus
 from .clipboard import copy_text
 from .clipboard import get_focus_window
 from .clipboard import get_foreground_window
@@ -83,6 +84,8 @@ class WindowsVoiceTyperApp:
         self._progress_bar = None
         self._paste_target_hwnd = 0
         self._paste_target_focus_hwnd = 0
+        self._last_activation_source = ""
+        self._last_activation_needs_alt_cleanup = False
         self._model_warmup_thread = None
         self._model_setup_thread = None
         self._streaming_session = None
@@ -134,7 +137,7 @@ class WindowsVoiceTyperApp:
             self._transition_locked(AppState.STARTING, "start requested")
             self._log(f"paste target hwnd: {self._paste_target_hwnd} focus: {self._paste_target_focus_hwnd}")
         if self._paste_target_hwnd:
-            restored = restore_focus(self._paste_target_hwnd, self._paste_target_focus_hwnd)
+            restored = self._restore_activation_focus("start")
             self._log(f"focus restore after start request: {restored}")
         try:
             self.recorder.start()
@@ -180,7 +183,7 @@ class WindowsVoiceTyperApp:
             self._transition_locked(AppState.PROCESSING, "audio captured")
         self._log(f"recording stopped: {audio_path}")
         if self._paste_target_hwnd:
-            restored = restore_focus(self._paste_target_hwnd, self._paste_target_focus_hwnd)
+            restored = self._restore_activation_focus("stop")
             self._log(f"focus restore after stop request: {restored}")
         self._set_status("Transcribing...")
         threading.Thread(target=self._transcribe_and_paste, args=(audio_path, streaming_session), daemon=True).start()
@@ -194,6 +197,21 @@ class WindowsVoiceTyperApp:
             self.start_recording(target_hwnd=target_hwnd, target_focus_hwnd=target_focus_hwnd)
         else:
             self._log(f"recording toggle ignored: state={state.value}")
+
+    def _restore_activation_focus(self, phase: str) -> bool:
+        if (
+            bool(self.config.get("alt_menu_escape_after_double_tap", True))
+            and self._last_activation_needs_alt_cleanup
+        ):
+            cleared = clear_alt_menu_focus(self._paste_target_hwnd, self._paste_target_focus_hwnd)
+            self._log(f"alt menu focus clear after {phase}: {cleared}")
+            self._last_activation_needs_alt_cleanup = False
+            return cleared
+        return restore_focus(self._paste_target_hwnd, self._paste_target_focus_hwnd)
+
+    def _set_activation_source(self, source: str, *, needs_alt_cleanup: bool = False) -> None:
+        self._last_activation_source = source
+        self._last_activation_needs_alt_cleanup = bool(needs_alt_cleanup)
 
     def run_forever(self) -> None:
         if not self._acquire_single_instance_lock():
@@ -535,6 +553,10 @@ class WindowsVoiceTyperApp:
 
             def on_double_tap(target_hwnd: int = 0, target_focus_hwnd: int = 0) -> None:
                 self._log(f"{record_key} double tap detected")
+                self._set_activation_source(
+                    record_key,
+                    needs_alt_cleanup=record_key in ("alt", "option"),
+                )
                 self.toggle_recording(target_hwnd=target_hwnd, target_focus_hwnd=target_focus_hwnd)
 
             listener = PollingDoubleTapListener(
@@ -558,6 +580,7 @@ class WindowsVoiceTyperApp:
 
         def on_double_tap(target_hwnd: int, target_focus_hwnd: int) -> None:
             self._log(f"{record_key} double tap detected")
+            self._set_activation_source(record_key)
             threading.Thread(
                 target=self.toggle_recording,
                 kwargs={
@@ -613,6 +636,10 @@ class WindowsVoiceTyperApp:
                     state["last_tap_at"] = now
             if should_toggle:
                 self._log(f"{record_key} double tap detected")
+                self._set_activation_source(
+                    record_key,
+                    needs_alt_cleanup=record_key in ("alt", "option"),
+                )
                 threading.Thread(target=self.toggle_recording, daemon=True).start()
 
         listener = keyboard.Listener(on_press=on_press, on_release=on_release)
@@ -627,6 +654,7 @@ class WindowsVoiceTyperApp:
 
         def on_start() -> None:
             self._log(f"{hold_key} hold recording start")
+            self._set_activation_source(hold_key)
             self.start_recording()
 
         def on_stop() -> None:
@@ -652,6 +680,7 @@ class WindowsVoiceTyperApp:
 
             def on_middle_click() -> None:
                 self._log("middle click detected")
+                self._set_activation_source("middle_mouse")
                 self.toggle_recording()
 
             self._mouse_listener = PollingClickListener(

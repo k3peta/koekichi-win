@@ -24,6 +24,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "hold_start_delay_seconds": 0.2,
     "double_tap_to_toggle": True,
     "double_tap_interval_seconds": 0.45,
+    "alt_menu_escape_after_double_tap": True,
     "input_listener_backend": "polling",
     "middle_click_toggle_recording": False,
     "middle_click_suppress_native": False,
