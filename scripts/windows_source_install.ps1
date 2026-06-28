@@ -269,5 +269,5 @@ if ($LaunchAtLogin) {
 Write-Host ""
 Write-Host "Installed Koe Kichi to: $AppDir"
 Write-Host "Config and dictionary: $env:APPDATA\KoeKichi"
-Write-Host "Default mode: Alt double-tap, local Whisper on CPU, popup HUD near the cursor."
+Write-Host "Default mode: Alt double-tap, local Whisper on CPU, popup HUD near the active text field."
 Write-Host "Start it from the Start Menu: Koe Kichi"

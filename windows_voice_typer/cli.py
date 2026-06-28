@@ -90,6 +90,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"out: {result.text}")
         return 0
     if args.command == "run":
+        from .single_instance import acquire_single_instance
+
+        if not acquire_single_instance():
+            print("Koe Kichi is already running.", file=sys.stderr)
+            return 0
         WindowsVoiceTyperApp(config).run_forever()
         return 0
     parser.print_help(sys.stderr)

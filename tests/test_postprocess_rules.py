@@ -22,6 +22,27 @@ class PostprocessRuleTests(unittest.TestCase):
             "入力の関係が少し荒れているような気がします",
         )
 
+    def test_collapses_adjacent_duplicate_sentence_with_punctuation(self) -> None:
+        text = "ブラウザで入力できるようになりました。ブラウザで入力できるようになりました。"
+
+        self.assertEqual(
+            normalize_transcript_artifacts(text),
+            "ブラウザで入力できるようになりました。",
+        )
+
+    def test_collapses_adjacent_duplicate_phrase_with_comma_separator(self) -> None:
+        text = "これは修正しないといけないかもしれません、これは修正しないといけないかもしれません"
+
+        self.assertEqual(
+            normalize_transcript_artifacts(text),
+            "これは修正しないといけないかもしれません",
+        )
+
+    def test_keeps_short_intentional_repetition(self) -> None:
+        text = "まだまだ確認します"
+
+        self.assertEqual(normalize_transcript_artifacts(text), text)
+
 
 if __name__ == "__main__":
     unittest.main()

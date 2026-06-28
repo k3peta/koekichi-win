@@ -13,7 +13,7 @@ faster-whisper by default, and pastes the result into the current text field.
 - Local-first transcription: faster-whisper on CPU by default.
 - Optional Gemini API transcription: one stopped recording is sent as a single
   audio request when selected.
-- Popup HUD: appears near the cursor while recording/processing and auto-hides
+- Popup HUD: appears near the active text field while recording/processing and auto-hides
   after paste.
 - Task tray menu: settings, dictionary registration, history, and exit.
 - Model setup from the task tray when the Whisper model is not downloaded yet.

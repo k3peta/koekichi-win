@@ -20,6 +20,7 @@ JAPANESE_CHARS = r"一-龠々〆ヵヶぁ-んァ-ン"
 OPENING_QUOTES = "「『“‘"
 CLOSING_QUOTES = "」』”’"
 QUOTE_PAIRS = (("「", "」"), ("『", "』"), ("“", "”"), ("‘", "’"))
+DUPLICATE_IGNORED_CHARS = " \t\r\n\u3000、。！？!?.,，．・「」『』“”‘’\"'()（）[]【】"
 COMMON_TRANSCRIPT_HALLUCINATIONS = (
     "それではご視聴ありがとうございました",
     "ではご視聴ありがとうございました",
@@ -182,11 +183,75 @@ def collapse_repeated_artifacts(text: str) -> str:
     previous = None
     while previous != result:
         previous = result
+        result = collapse_adjacent_repeated_spans(result)
         result = collapse_repeated_phrases(result)
         result = re.sub(r"(?<![A-Za-z])([A-Z]{2,10})\1(?![A-Za-z])", r"\1", result)
         result = re.sub(r"(?<![一-龠])([一-龠]{2,6})\1(?![一-龠])", r"\1", result)
         result = re.sub(r"(?<![ァ-ンー])([ァ-ンー]{3,10})\1(?![ァ-ンー])", r"\1", result)
     return result
+
+
+def collapse_adjacent_repeated_spans(text: str, *, min_chars: int = 8, max_chars: int = 120) -> str:
+    result = text
+    for _ in range(8):
+        chars = _normalized_duplicate_chars(result)
+        count = len(chars)
+        if count < min_chars * 2:
+            return result
+        removal: tuple[int, int] | None = None
+        for size in range(min(max_chars, count // 2), min_chars - 1, -1):
+            for start in range(0, count - size * 2 + 1):
+                first = chars[start : start + size]
+                second = chars[start + size : start + size * 2]
+                if not _same_normalized_chars(first, second):
+                    continue
+                if not _looks_like_repeated_span(first):
+                    continue
+                first_end = first[-1][2]
+                second_start = second[0][1]
+                second_end = second[-1][2]
+                between = result[first_end:second_start]
+                remove_start = second_start if re.search(r"[。！？!?]", between) else first_end
+                remove_end = _extend_duplicate_removal_end(result, second_end) if remove_start == second_start else second_end
+                removal = (remove_start, remove_end)
+                break
+            if removal is not None:
+                break
+        if removal is None:
+            return result
+        start, end = removal
+        result = (result[:start] + result[end:]).strip()
+    return result
+
+
+def _normalized_duplicate_chars(text: str) -> list[tuple[str, int, int]]:
+    chars: list[tuple[str, int, int]] = []
+    ignored = set(DUPLICATE_IGNORED_CHARS)
+    for index, char in enumerate(text):
+        if char in ignored:
+            continue
+        chars.append((char.casefold(), index, index + 1))
+    return chars
+
+
+def _same_normalized_chars(
+    first: list[tuple[str, int, int]],
+    second: list[tuple[str, int, int]],
+) -> bool:
+    return len(first) == len(second) and all(left[0] == right[0] for left, right in zip(first, second))
+
+
+def _looks_like_repeated_span(chars: list[tuple[str, int, int]]) -> bool:
+    text = "".join(char for char, _start, _end in chars)
+    if len(set(text)) <= 2:
+        return False
+    return re.search(rf"[{JAPANESE_CHARS}A-Za-z0-9]", text) is not None
+
+
+def _extend_duplicate_removal_end(text: str, index: int) -> int:
+    while index < len(text) and text[index] in DUPLICATE_IGNORED_CHARS:
+        index += 1
+    return index
 
 
 def normalize_quote_artifacts(text: str) -> str:
