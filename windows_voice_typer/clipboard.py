@@ -56,6 +56,52 @@ def get_focus_window() -> int:
     return 0
 
 
+def get_caret_screen_rect(target_hwnd: int | None = None) -> tuple[int, int, int, int] | None:
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = int(target_hwnd or user32.GetForegroundWindow() or 0)
+        if not hwnd:
+            return None
+        if not user32.IsWindow(hwnd):
+            return None
+        thread_id = user32.GetWindowThreadProcessId(hwnd, None)
+        if not thread_id:
+            return None
+        info = GUITHREADINFO()
+        info.cbSize = ctypes.sizeof(GUITHREADINFO)
+        if not user32.GetGUIThreadInfo(thread_id, ctypes.byref(info)):
+            return None
+        caret_hwnd = int(info.hwndCaret or info.hwndFocus or 0)
+        if not caret_hwnd:
+            return None
+        rect = info.rcCaret
+        left = int(rect.left)
+        top = int(rect.top)
+        right = int(rect.right)
+        bottom = int(rect.bottom)
+        if left < 0 and top < 0:
+            return None
+        if left == right and top == bottom:
+            right = left + 2
+            bottom = top + 18
+
+        point = wintypes.POINT(left, top)
+        if not user32.ClientToScreen(caret_hwnd, ctypes.byref(point)):
+            return None
+        screen_left = int(point.x)
+        screen_top = int(point.y)
+        if screen_left < 0 and screen_top < 0:
+            return None
+        return (
+            screen_left,
+            screen_top,
+            screen_left + max(2, right - left),
+            screen_top + max(18, bottom - top),
+        )
+    except Exception:
+        return None
+
+
 def paste_text(
     text: str,
     *,

@@ -14,6 +14,7 @@ from typing import Any
 
 from .clipboard import clear_alt_menu_focus
 from .clipboard import copy_text
+from .clipboard import get_caret_screen_rect
 from .clipboard import get_focus_window
 from .clipboard import get_foreground_window
 from .clipboard import paste_text
@@ -964,9 +965,50 @@ class WindowsVoiceTyperApp:
             y = max(8, min(pointer_y + 18, screen_h - height - 8))
             return x, y
 
+        def clamp_to_screen(x: int, y: int, width: int, height: int) -> tuple[int, int]:
+            try:
+                screen_w = root.winfo_screenwidth()
+                screen_h = root.winfo_screenheight()
+            except Exception:
+                screen_w = 1920
+                screen_h = 1080
+            return (
+                max(8, min(int(x), screen_w - width - 8)),
+                max(8, min(int(y), screen_h - height - 8)),
+            )
+
+        def fits_screen(x: int, y: int, width: int, height: int) -> bool:
+            try:
+                screen_w = root.winfo_screenwidth()
+                screen_h = root.winfo_screenheight()
+            except Exception:
+                screen_w = 1920
+                screen_h = 1080
+            return 8 <= x <= screen_w - width - 8 and 8 <= y <= screen_h - height - 8
+
+        def place_near_text_target(width: int, height: int) -> tuple[int, int]:
+            caret = get_caret_screen_rect(self._paste_target_focus_hwnd or self._paste_target_hwnd or None)
+            if caret is None:
+                return place_near_pointer(width, height)
+            left, top, right, bottom = caret
+            gap_x = 18
+            gap_y = 10
+            candidates = [
+                (right + gap_x, bottom + gap_y),
+                (left - width - gap_x, bottom + gap_y),
+                (right + gap_x, top - height - gap_y),
+                (left - width - gap_x, top - height - gap_y),
+                (right + gap_x, max(8, top - 6)),
+                (left - width - gap_x, max(8, top - 6)),
+            ]
+            for x, y in candidates:
+                if fits_screen(int(x), int(y), width, height):
+                    return int(x), int(y)
+            return clamp_to_screen(right + gap_x, bottom + gap_y, width, height)
+
         def show_window(width: int, height: int) -> None:
             if not hud_visible["value"]:
-                x, y = place_near_pointer(width, height)
+                x, y = place_near_text_target(width, height)
                 show_no_activate(width, height, x, y)
                 hud_visible["value"] = True
                 return
