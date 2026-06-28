@@ -1,7 +1,7 @@
 koekichi-win source package
 Built: 2026-06-27
 Input: Alt double-tap to start/stop
-HUD: popup near cursor, auto-hide after paste
+HUD: popup near the active text field, auto-hide after paste
 Model: faster-whisper small, CPU int8
 Optional: Gemini API one-call audio transcription
 License: MIT
