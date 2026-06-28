@@ -106,4 +106,6 @@ def is_reasonable_text_target_rect(
         window_height = max(1, window_bottom - window_top)
         if width >= window_width * 0.90 and height >= window_height * 0.70:
             return False
+        if width <= 12 and height <= 40 and abs(left - window_left) <= 12 and abs(top - window_top) <= 12:
+            return False
     return True

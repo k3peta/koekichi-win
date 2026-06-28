@@ -94,6 +94,21 @@ def _window_screen_rect(hwnd: int | None) -> tuple[int, int, int, int] | None:
         return None
 
 
+def _cursor_screen_position(root: Any) -> tuple[int, int]:
+    try:
+        point = wintypes.POINT()
+        user32 = ctypes.windll.user32
+        if user32.GetCursorPos(ctypes.byref(point)):
+            return int(point.x), int(point.y)
+    except Exception:
+        pass
+    try:
+        return int(root.winfo_pointerx()), int(root.winfo_pointery())
+    except Exception:
+        bounds = _virtual_screen_bounds(root)
+        return bounds[0] + 40, bounds[1] + 40
+
+
 class _ListenerGroup:
     def __init__(self, listeners: list[Any]):
         self.listeners = listeners
@@ -999,12 +1014,7 @@ class WindowsVoiceTyperApp:
 
         def place_near_pointer(width: int, height: int) -> tuple[int, int]:
             bounds = _virtual_screen_bounds(root)
-            try:
-                pointer_x = root.winfo_pointerx()
-                pointer_y = root.winfo_pointery()
-            except Exception:
-                pointer_x = bounds[0] + 40
-                pointer_y = bounds[1] + 40
+            pointer_x, pointer_y = _cursor_screen_position(root)
             return clamp_hud_position(pointer_x + 14, pointer_y + 18, width, height, bounds)
 
         def place_near_text_target(width: int, height: int) -> tuple[int, int]:

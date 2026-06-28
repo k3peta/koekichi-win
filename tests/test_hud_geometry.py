@@ -47,6 +47,15 @@ class HudGeometryTests(unittest.TestCase):
     def test_rejects_offscreen_text_rect(self) -> None:
         self.assertFalse(is_reasonable_text_target_rect((2200, 100, 2300, 150), (0, 0, 1920, 1080)))
 
+    def test_rejects_tiny_rect_at_window_origin(self) -> None:
+        self.assertFalse(
+            is_reasonable_text_target_rect(
+                (100, 100, 102, 118),
+                (0, 0, 1920, 1080),
+                window_rect=(100, 100, 900, 700),
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
