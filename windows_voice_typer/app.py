@@ -21,6 +21,8 @@ from .clipboard import get_foreground_window
 from .clipboard import get_text_target_screen_rect
 from .clipboard import paste_text
 from .clipboard import restore_focus
+from .audio_guard import should_skip_low_activity_audio
+from .audio_guard import wav_activity_summary
 from .config import app_data_dir
 from .config import default_config_path
 from .config import load_config
@@ -35,6 +37,7 @@ from .gemini_transcriber import set_user_api_key
 from .hud_geometry import choose_hud_position_near_rect
 from .hud_geometry import clamp_hud_position
 from .hud_geometry import is_reasonable_text_target_rect
+from .history_guard import is_recent_duplicate_history
 from .postprocess import postprocess
 from .recorder import Recorder
 from .streaming_prefetch import StreamingPrefetchSession
@@ -519,6 +522,21 @@ class WindowsVoiceTyperApp:
                 timings[name] = time.perf_counter() - started
 
         try:
+            audio_summary = timed("audio_guard", lambda: wav_activity_summary(audio_path))
+            self._log(
+                "audio activity: "
+                f"seconds={audio_summary.seconds:.2f} rms={audio_summary.rms:.4f} "
+                f"peak={audio_summary.peak:.4f} active={audio_summary.active_seconds:.2f} "
+                f"ratio={audio_summary.active_ratio:.2f}"
+            )
+            audio_decision = should_skip_low_activity_audio(audio_summary, self.config)
+            if audio_decision.skip:
+                if streaming_session is not None:
+                    streaming_session.cancel()
+                self._log(f"misinput guard skipped audio: {audio_decision.reason}")
+                self._set_status("Ready - no speech recognized")
+                return
+
             hints = self._whisper_hints()
             mode = "full"
             raw = ""
@@ -1121,6 +1139,13 @@ class WindowsVoiceTyperApp:
         }
         with self._history_lock:
             history = self._load_history_unlocked()
+            if is_recent_duplicate_history(
+                history,
+                output,
+                window_seconds=float(self.config.get("history_duplicate_window_seconds", 180.0)),
+            ):
+                self._log("history duplicate suppressed")
+                return
             history.insert(0, item)
             del history[int(self.config.get("history_limit", 200)) :]
             self._save_history_unlocked(history)

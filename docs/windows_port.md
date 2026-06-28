@@ -199,6 +199,15 @@ Example config for Ollama:
 
 For localhost endpoints the API key may be empty.
 
+## Misinput guard baseline
+
+The Windows port inherits the macOS guard strategy before adding more AI
+features. The implemented baseline is documented in
+[misinput_guard_strategy.md](misinput_guard_strategy.md): low-activity audio
+rejection, known hallucination trimming, repeated text cleanup, prefix/tail
+overlap removal, URL punctuation exceptions, dictionary replacement, and
+duplicate history suppression.
+
 ## Packaging direction
 
 The maintained packaging path is now:

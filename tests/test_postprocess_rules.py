@@ -90,6 +90,25 @@ class PostprocessRuleTests(unittest.TestCase):
             "毎回何らかの誤入力があったり、誤変換があったりするので、それらを追いかけて、何らかの対策を取りたいと思います",
         )
 
+    def test_trims_repeated_suffix_hallucination(self) -> None:
+        text = "ここまでは正常です。じゃあ、じゃあ、じゃあ、じゃあ、じゃあ、じゃあ、じゃあ、じゃあ、"
+
+        self.assertEqual(normalize_transcript_artifacts(text), "ここまでは正常です")
+
+    def test_drops_repeated_suffix_when_no_body_remains(self) -> None:
+        text = "こす" * 15
+
+        self.assertEqual(normalize_transcript_artifacts(text), "")
+
+    def test_keeps_url_without_adding_sentence_period(self) -> None:
+        self.assertEqual(postprocess("https://example.com/", {"postprocess_mode": "local_punctuation"}).text, "https://example.com/")
+
+    def test_removes_terminal_period_from_markdown_link(self) -> None:
+        self.assertEqual(
+            normalize_transcript_artifacts("[note](https://note.com/) 。"),
+            "[note](https://note.com/)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

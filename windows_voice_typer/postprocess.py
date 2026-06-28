@@ -38,7 +38,7 @@ FORBIDDEN_VIDEO_CLOSING_INSTRUCTION = (
 def postprocess(text: str, config: dict[str, Any]) -> PostprocessResult:
     mode = str(config.get("postprocess_mode", "local_punctuation"))
     if mode in ("", "off", "none", "false"):
-        return PostprocessResult(text=remove_common_hallucination_fillers(text), provider="none")
+        return PostprocessResult(text=apply_misinput_guards(text), provider="none")
     cleaned = normalize_transcript_artifacts(text)
     if mode == "local_punctuation":
         return PostprocessResult(text=basic_punctuation(cleaned), provider="local")
@@ -105,6 +105,8 @@ def basic_punctuation(text: str) -> str:
     result = normalize_transcript_artifacts(text)
     if not result:
         return result
+    if is_url_like_text(result):
+        return remove_url_terminal_punctuation(result)
     result = result.replace("?", "？").replace("!", "！")
     result = re.sub(r"\s+([、。！？])", r"\1", result)
     boundary = r"(ちゃんと|これ|それ|あれ|では|でも|ただ|あと|あとは|今|次|句読点|自動|[一-龠ぁ-んァ-ン])"
@@ -117,7 +119,7 @@ def basic_punctuation(text: str) -> str:
     )
     if result[-1] not in "。！？!?.,、，．":
         result += "。"
-    return tune_punctuation(result)
+    return remove_url_terminal_punctuation(tune_punctuation(result))
 
 
 def tune_punctuation(text: str) -> str:
@@ -138,7 +140,7 @@ def tune_punctuation(text: str) -> str:
     result = re.sub(r"(https?://\S+?)(?=[一-龠ぁ-んァ-ン])", r"\1 ", result)
     result = re.sub(r"\s+([、。！？])", r"\1", result)
     result = re.sub(r"([、。！？])\1+", r"\1", result)
-    return normalize_transcript_artifacts(result)
+    return remove_url_terminal_punctuation(normalize_transcript_artifacts(result))
 
 
 def normalize_transcript_artifacts(text: str) -> str:
@@ -155,7 +157,22 @@ def normalize_transcript_artifacts(text: str) -> str:
     result = re.sub(r"[ \t\u3000]+([、。！？!?.,，．])", r"\1", result)
     result = re.sub(rf"(?<=[{JAPANESE_CHARS}])[ \t\u3000]+(?=[{JAPANESE_CHARS}A-Za-z0-9])", "", result)
     result = re.sub(rf"(?<=[A-Za-z0-9])[ \t\u3000]+(?=[{JAPANESE_CHARS}])", "", result)
-    return collapse_repeated_artifacts(result)
+    return apply_misinput_guards(result)
+
+
+def apply_misinput_guards(text: str) -> str:
+    result = text.strip()
+    if not result:
+        return result
+    result = remove_common_hallucination_fillers(result)
+    if not result:
+        return result
+    result = trim_repeated_suffix(result)
+    if not result:
+        return result
+    result = collapse_repeated_artifacts(result)
+    result = remove_url_terminal_punctuation(result)
+    return result.strip()
 
 
 def remove_common_hallucination_fillers(text: str) -> str:
@@ -194,6 +211,28 @@ def collapse_repeated_artifacts(text: str) -> str:
         result = re.sub(r"(?<![A-Za-z])([A-Z]{2,10})\1(?![A-Za-z])", r"\1", result)
         result = re.sub(r"(?<![一-龠])([一-龠]{2,6})\1(?![一-龠])", r"\1", result)
         result = re.sub(r"(?<![ァ-ンー])([ァ-ンー]{3,10})\1(?![ァ-ンー])", r"\1", result)
+    return result
+
+
+def trim_repeated_suffix(text: str, *, min_repeats: int = 8, min_repeated_chars: int = 24) -> str:
+    result = text.rstrip()
+    chars = _normalized_duplicate_chars(result)
+    if not chars:
+        return ""
+    max_unit = min(10, len(chars) // max(1, min_repeats))
+    for unit_size in range(1, max_unit + 1):
+        unit = chars[-unit_size:]
+        repeats = 1
+        cursor = len(chars) - unit_size * 2
+        while cursor >= 0 and _same_normalized_chars(chars[cursor : cursor + unit_size], unit):
+            repeats += 1
+            cursor -= unit_size
+        repeated_chars = repeats * unit_size
+        if repeats < min_repeats or repeated_chars < min_repeated_chars:
+            continue
+        remove_start = chars[len(chars) - repeated_chars][1]
+        prefix = result[:remove_start].rstrip(" \t\r\n、。！？!?.,，．")
+        return prefix
     return result
 
 
@@ -258,6 +297,20 @@ def _extend_duplicate_removal_end(text: str, index: int) -> int:
     while index < len(text) and text[index] in DUPLICATE_IGNORED_CHARS:
         index += 1
     return index
+
+
+def is_url_like_text(text: str) -> bool:
+    stripped = text.strip()
+    if re.fullmatch(r"https?://\S+", stripped):
+        return True
+    return re.fullmatch(r"\[[^\]]+\]\(https?://[^)\s]+\)", stripped) is not None
+
+
+def remove_url_terminal_punctuation(text: str) -> str:
+    result = text.strip()
+    result = re.sub(r"(https?://[^\s、。！？!?，．]+)[、。．.]$", r"\1", result)
+    result = re.sub(r"(\[[^\]]+\]\(https?://[^)\s]+\))[、。．.]$", r"\1", result)
+    return result
 
 
 def normalize_quote_artifacts(text: str) -> str:

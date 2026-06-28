@@ -25,6 +25,9 @@ faster-whisper by default, and pastes the result into the current text field.
   `hotwords` stay off unless you enable them.
 - Optional AI text correction through an OpenAI-compatible endpoint such as
   OpenAI API or local Ollama.
+- Misinput guards: low-activity audio skip, known hallucination trimming,
+  repeated suffix cleanup, URL punctuation exceptions, and duplicate history
+  suppression.
 
 ## Install
 
