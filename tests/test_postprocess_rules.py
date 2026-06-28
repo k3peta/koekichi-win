@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import unittest
 
+from windows_voice_typer.postprocess import default_instructions
 from windows_voice_typer.postprocess import normalize_transcript_artifacts
+from windows_voice_typer.postprocess import postprocess
+from windows_voice_typer.postprocess import prompt_for_mode
 
 
 class PostprocessRuleTests(unittest.TestCase):
@@ -42,6 +45,24 @@ class PostprocessRuleTests(unittest.TestCase):
         text = "まだまだ確認します"
 
         self.assertEqual(normalize_transcript_artifacts(text), text)
+
+    def test_removes_trailing_video_closing_hallucination_with_punctuation(self) -> None:
+        text = "今日はここまでです。ご視聴ありがとうございました。"
+
+        self.assertEqual(normalize_transcript_artifacts(text), "今日はここまでです")
+
+    def test_removes_video_closing_even_when_postprocess_is_off(self) -> None:
+        result = postprocess("今日はここまでです。ご視聴ありがとうございました。", {"postprocess_mode": "off"})
+
+        self.assertEqual(result.text, "今日はここまでです")
+
+    def test_ai_prompts_forbid_video_closing_hallucination(self) -> None:
+        phrase = "ご視聴ありがとうございました"
+
+        self.assertIn(phrase, default_instructions(rewrite=True))
+        self.assertIn(phrase, default_instructions(rewrite=False))
+        self.assertIn(phrase, prompt_for_mode("今日はここまでです", rewrite=True))
+        self.assertIn(phrase, prompt_for_mode("今日はここまでです", rewrite=False))
 
 
 if __name__ == "__main__":

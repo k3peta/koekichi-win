@@ -10,11 +10,20 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .postprocess import remove_common_hallucination_fillers
+
+
+FORBIDDEN_VIDEO_CLOSING_INSTRUCTION = (
+    "Never add common video-closing hallucinations. "
+    "In particular, do not output 「ご視聴ありがとうございました」, "
+    "「ご清聴ありがとうございました」, or similar closing phrases under any circumstance. "
+)
 
 DEFAULT_GEMINI_PROMPT = (
     "Generate a clean Japanese transcript of the speech in this audio. "
     "Remove filler words and hesitation sounds such as えー, えっと, あのー, そのー, and あー. "
-    "Keep the speaker's intended meaning and wording otherwise. "
+    + FORBIDDEN_VIDEO_CLOSING_INSTRUCTION
+    + "Keep the speaker's intended meaning and wording otherwise. "
     "Return only the transcript text. Do not summarize, translate, explain, "
     "add speaker labels, timestamps, markdown, or quotation marks. "
     "If there is no speech, return an empty string."
@@ -37,7 +46,7 @@ class GeminiAudioTranscriber:
         self.endpoint = endpoint
         self.timeout_seconds = timeout_seconds
         self.max_inline_audio_bytes = max_inline_audio_bytes
-        self.prompt = prompt or DEFAULT_GEMINI_PROMPT
+        self.prompt = _with_forbidden_video_closing_instruction(prompt or DEFAULT_GEMINI_PROMPT)
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "GeminiAudioTranscriber":
@@ -264,7 +273,14 @@ def sanitize_gemini_transcript(text: str) -> str:
         if len(result) >= len(left) + len(right) and result.startswith(left) and result.endswith(right):
             result = result[len(left) : -len(right)].strip()
     result = _remove_japanese_fillers(result)
-    return result
+    return remove_common_hallucination_fillers(result)
+
+
+def _with_forbidden_video_closing_instruction(prompt: str) -> str:
+    cleaned = prompt.strip()
+    if "ご視聴ありがとうございました" in cleaned and "do not output" in cleaned.casefold():
+        return cleaned
+    return f"{cleaned} {FORBIDDEN_VIDEO_CLOSING_INSTRUCTION}".strip()
 
 
 def _remove_japanese_fillers(text: str) -> str:

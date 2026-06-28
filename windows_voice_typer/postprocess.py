@@ -28,12 +28,17 @@ COMMON_TRANSCRIPT_HALLUCINATIONS = (
     "ご清聴ありがとうございました",
     "ご視聴ありがとうございます",
 )
+FORBIDDEN_VIDEO_CLOSING_INSTRUCTION = (
+    "重要: 動画の締め言葉の幻覚を絶対に追加しないでください。"
+    "特に「ご視聴ありがとうございました」「ご清聴ありがとうございました」および類似表現は、"
+    "文末にも本文中にも出力しないでください。"
+)
 
 
 def postprocess(text: str, config: dict[str, Any]) -> PostprocessResult:
     mode = str(config.get("postprocess_mode", "local_punctuation"))
     if mode in ("", "off", "none", "false"):
-        return PostprocessResult(text=text, provider="none")
+        return PostprocessResult(text=remove_common_hallucination_fillers(text), provider="none")
     cleaned = normalize_transcript_artifacts(text)
     if mode == "local_punctuation":
         return PostprocessResult(text=basic_punctuation(cleaned), provider="local")
@@ -60,6 +65,7 @@ def rewrite_with_openai_compatible(text: str, config: dict[str, Any], *, rewrite
     instructions = str(config.get("openai_compatible_custom_prompt", "")).strip()
     if not instructions:
         instructions = default_instructions(rewrite=rewrite)
+    instructions = append_forbidden_video_closing_instruction(instructions)
     payload = {
         "model": str(config.get("openai_compatible_model", "gpt-4.1-mini")),
         "messages": [
@@ -169,7 +175,7 @@ def remove_common_hallucination_fillers(text: str) -> str:
     for phrase in COMMON_TRANSCRIPT_HALLUCINATIONS:
         escaped = re.escape(phrase)
         updated = re.sub(rf"^(?:{escaped}{separator})+", "", result)
-        updated = re.sub(rf"(?:{separator}{escaped})+$", "", updated)
+        updated = re.sub(rf"(?:{separator}{escaped})+{separator}$", "", updated)
         if updated != result:
             changed = True
             result = updated
@@ -347,6 +353,7 @@ def default_instructions(*, rewrite: bool) -> str:
             "あなたは日本語音声入力の後処理器です。音声認識の誤字、明らかな同音誤変換、重複、句読点だけを直してください。"
             "意味、語尾、話者の意図、情報量を変えず、要約や補足や言い換えをしないでください。"
             "内容を増やさず、URL、英数字、固有名詞、コード片は変更しないでください。"
+            f"{FORBIDDEN_VIDEO_CLOSING_INSTRUCTION}"
             "説明や引用符を付けず、修正後の本文だけを返してください。"
         )
     return (
@@ -354,14 +361,28 @@ def default_instructions(*, rewrite: bool) -> str:
         "読点「、」は控えめにし、迷う場所には入れないでください。"
         "ただし文末、問い、感嘆、明確な文の終わりには「。」「？」「！」を正確に入れてください。"
         "短い語句ごとに句点を打たず、話し言葉の流れを保ってください。"
+        f"{FORBIDDEN_VIDEO_CLOSING_INSTRUCTION}"
         "説明や引用符を付けず、本文だけを返してください。"
     )
 
 
 def prompt_for_mode(text: str, *, rewrite: bool) -> str:
     if rewrite:
-        return f"次の音声入力文の誤字、重複、句読点だけを軽く修正してください。意味は変えないでください。\n入力: {text}\n出力:"
-    return f"次の本文に句読点だけを追加してください。読点は控えめにし、文末には句点を正確に入れてください。\n入力: {text}\n出力:"
+        return (
+            "次の音声入力文の誤字、重複、句読点だけを軽く修正してください。意味は変えないでください。"
+            f"{FORBIDDEN_VIDEO_CLOSING_INSTRUCTION}\n入力: {text}\n出力:"
+        )
+    return (
+        "次の本文に句読点だけを追加してください。読点は控えめにし、文末には句点を正確に入れてください。"
+        f"{FORBIDDEN_VIDEO_CLOSING_INSTRUCTION}\n入力: {text}\n出力:"
+    )
+
+
+def append_forbidden_video_closing_instruction(instructions: str) -> str:
+    cleaned = instructions.strip()
+    if "ご視聴ありがとうございました" in cleaned:
+        return cleaned
+    return f"{cleaned}{FORBIDDEN_VIDEO_CLOSING_INSTRUCTION}"
 
 
 def sanitize_model_output(text: str) -> str:
