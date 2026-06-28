@@ -41,6 +41,9 @@ DEFAULT_DICTIONARY: dict[str, Any] = {
         {"from": "アクアボイス", "to": "AquaVoice", "mode": "literal"},
         {"from": "チャットジーピーティー", "to": "ChatGPT", "mode": "literal"},
         {"from": "苦闘点", "to": "句読点", "mode": "literal"},
+        {"from": "苦等点", "to": "句読点", "mode": "literal"},
+        {"from": "句頭点", "to": "句読点", "mode": "literal"},
+        {"from": "句読店", "to": "句読点", "mode": "literal"},
     ],
     "urls": [
         {
@@ -155,8 +158,24 @@ def _replace_url_command(text: str, alias: str, rendered: str) -> str:
 def _merge_defaults(loaded: dict[str, Any]) -> dict[str, Any]:
     merged = json.loads(json.dumps(DEFAULT_DICTIONARY, ensure_ascii=False))
     for key, value in loaded.items():
-        if key in ("replacements", "urls") and isinstance(value, list):
-            merged[key] = value
+        if key == "replacements" and isinstance(value, list):
+            merged[key] = _merge_default_items(value, DEFAULT_DICTIONARY["replacements"], "from")
+        elif key == "urls" and isinstance(value, list):
+            merged[key] = _merge_default_items(value, DEFAULT_DICTIONARY["urls"], "title")
         elif key not in ("replacements", "urls"):
             merged[key] = value
     return merged
+
+
+def _merge_default_items(loaded: list[Any], defaults: list[Any], identity_key: str) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = [dict(item) for item in loaded if isinstance(item, dict)]
+    seen = {str(item.get(identity_key, "")) for item in result if str(item.get(identity_key, ""))}
+    for item in defaults:
+        if not isinstance(item, dict):
+            continue
+        identity = str(item.get(identity_key, ""))
+        if not identity or identity in seen:
+            continue
+        result.append(json.loads(json.dumps(item, ensure_ascii=False)))
+        seen.add(identity)
+    return result

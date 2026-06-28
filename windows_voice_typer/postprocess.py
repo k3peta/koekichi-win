@@ -212,6 +212,7 @@ def normalize_quote_artifacts(text: str) -> str:
 
 def normalize_common_misrecognitions(text: str) -> str:
     result = text
+    result = normalize_rule_based_misrecognitions(result)
     replacements = (
         ("高液値", "声吉"),
         ("声機値", "声吉"),
@@ -246,6 +247,24 @@ def normalize_common_misrecognitions(text: str) -> str:
         result,
     )
     result = re.sub(r"((?:キーボード|キー|入力|マウス|マウスカーソル|カーソル|ボタン)が)向こう(?=になる|に)", r"\1無効", result)
+    return result
+
+
+def normalize_rule_based_misrecognitions(text: str) -> str:
+    result = text
+    result = re.sub(r"(?:苦闘点|苦等点|句頭点|句読店)", "句読点", result)
+    result = re.sub(
+        r"(?:行く|いく|区|句)\s*と[、,\s]*点(?=(?:の|を|が|に|で|だけ|周り|まわり|について|関係|入力|補正|修正|問題))",
+        "句読点",
+        result,
+    )
+    result = re.sub(
+        r"(?:損し|そうし)\s*荒れている(?:[、,\s]*(?:損し|そうし)\s*荒れている)+",
+        "少し荒れている",
+        result,
+    )
+    result = re.sub(r"(?:損し|そうし)\s*荒れている(?=(?:よう|感じ|ので|から|かも|気が|ところ|状態))", "少し荒れている", result)
+    result = re.sub(r"(少し荒れている)(?:[、,\s]*\1)+", r"\1", result)
     return result
 
 
