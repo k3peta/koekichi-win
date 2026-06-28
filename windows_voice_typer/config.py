@@ -84,7 +84,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "openai_compatible_max_tokens": 512,
     "openai_compatible_custom_prompt": "",
     "launch_at_login": False,
-    "preload_model_at_startup": False,
+    "preload_model_at_startup": True,
     "dictionary_path": "auto",
 }
 
