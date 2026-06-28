@@ -24,6 +24,8 @@ DEFAULT_DICTIONARY: dict[str, Any] = {
         {"from": "五認識", "to": "誤認識", "mode": "literal"},
         {"from": "5時たち", "to": "誤字たち", "mode": "literal"},
         {"from": "五時たち", "to": "誤字たち", "mode": "literal"},
+        {"from": "ご変換", "to": "誤変換", "mode": "literal"},
+        {"from": "ご変化", "to": "誤変換", "mode": "literal"},
         {"from": "自処的", "to": "自動的", "mode": "literal"},
         {"from": "自処に", "to": "自動的に", "mode": "literal"},
         {"from": "実過", "to": "実装", "mode": "literal"},

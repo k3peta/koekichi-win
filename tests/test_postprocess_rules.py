@@ -69,6 +69,10 @@ class PostprocessRuleTests(unittest.TestCase):
             normalize_transcript_artifacts("今回もご変換がありますね"),
             "今回も誤変換がありますね",
         )
+        self.assertEqual(
+            normalize_transcript_artifacts("今回もご変化がありますね"),
+            "今回も誤変換がありますね",
+        )
 
     def test_collapses_restart_prefix_fragment(self) -> None:
         self.assertEqual(

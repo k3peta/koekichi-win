@@ -16,6 +16,7 @@ class VoiceDictionaryTests(unittest.TestCase):
 
         self.assertEqual(dictionary.process("苦闘点を見直す"), "句読点を見直す")
         self.assertEqual(dictionary.process("句読店を見直す"), "句読点を見直す")
+        self.assertEqual(dictionary.process("今回もご変化がありますね"), "今回も誤変換がありますね")
 
     def test_load_adds_missing_default_replacements_to_existing_dictionary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -37,6 +38,7 @@ class VoiceDictionaryTests(unittest.TestCase):
 
         self.assertEqual(dictionary.process("句頭点"), "句読点")
         self.assertEqual(dictionary.process("苦闘点"), "句読点")
+        self.assertEqual(dictionary.process("ご変化"), "誤変換")
 
 
 if __name__ == "__main__":
