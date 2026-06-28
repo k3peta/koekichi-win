@@ -90,6 +90,12 @@ class PostprocessRuleTests(unittest.TestCase):
             "毎回何らかの誤入力があったり、誤変換があったりするので、それらを追いかけて、何らかの対策を取りたいと思います",
         )
 
+    def test_normalizes_nanikamo_mondai_misrecognition(self) -> None:
+        self.assertEqual(
+            normalize_transcript_artifacts("何かも問題が出たときには報告します"),
+            "何らかの問題が出たときには報告します",
+        )
+
     def test_trims_repeated_suffix_hallucination(self) -> None:
         text = "ここまでは正常です。じゃあ、じゃあ、じゃあ、じゃあ、じゃあ、じゃあ、じゃあ、じゃあ、"
 
