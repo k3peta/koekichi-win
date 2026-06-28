@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from windows_voice_typer.hud_geometry import choose_hud_position_near_rect
+from windows_voice_typer.hud_geometry import is_reasonable_text_target_rect
 
 
 class HudGeometryTests(unittest.TestCase):
@@ -24,6 +25,27 @@ class HudGeometryTests(unittest.TestCase):
             choose_hud_position_near_rect(rect, 150, 34, bounds),
             (287, 206),
         )
+
+    def test_accepts_caret_sized_text_rect(self) -> None:
+        self.assertTrue(
+            is_reasonable_text_target_rect(
+                (320, 180, 322, 202),
+                (0, 0, 1920, 1080),
+                window_rect=(100, 100, 900, 700),
+            )
+        )
+
+    def test_rejects_window_sized_text_rect(self) -> None:
+        self.assertFalse(
+            is_reasonable_text_target_rect(
+                (110, 110, 890, 690),
+                (0, 0, 1920, 1080),
+                window_rect=(100, 100, 900, 700),
+            )
+        )
+
+    def test_rejects_offscreen_text_rect(self) -> None:
+        self.assertFalse(is_reasonable_text_target_rect((2200, 100, 2300, 150), (0, 0, 1920, 1080)))
 
 
 if __name__ == "__main__":

@@ -76,3 +76,34 @@ def choose_hud_position_near_rect(
     if best is not None:
         return best
     return clamp_hud_position(right + gap_x, bottom + gap_y, width, height, bounds, margin=margin)
+
+
+def is_reasonable_text_target_rect(
+    rect: ScreenRect,
+    bounds: ScreenBounds,
+    *,
+    window_rect: ScreenRect | None = None,
+) -> bool:
+    left, top, right, bottom = rect
+    screen_left, screen_top, screen_right, screen_bottom = bounds
+    width = right - left
+    height = bottom - top
+    if width <= 0 or height <= 0:
+        return False
+    if right <= screen_left or bottom <= screen_top or left >= screen_right or top >= screen_bottom:
+        return False
+
+    screen_width = max(1, screen_right - screen_left)
+    screen_height = max(1, screen_bottom - screen_top)
+    if width >= screen_width * 0.95 or height >= screen_height * 0.85:
+        return False
+    if width >= screen_width * 0.75 and height >= screen_height * 0.45:
+        return False
+
+    if window_rect is not None:
+        window_left, window_top, window_right, window_bottom = window_rect
+        window_width = max(1, window_right - window_left)
+        window_height = max(1, window_bottom - window_top)
+        if width >= window_width * 0.90 and height >= window_height * 0.70:
+            return False
+    return True

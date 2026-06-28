@@ -9,6 +9,7 @@ import queue
 import tempfile
 import threading
 import time
+from ctypes import wintypes
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ from .gemini_transcriber import get_api_key
 from .gemini_transcriber import set_user_api_key
 from .hud_geometry import choose_hud_position_near_rect
 from .hud_geometry import clamp_hud_position
+from .hud_geometry import is_reasonable_text_target_rect
 from .postprocess import postprocess
 from .recorder import Recorder
 from .streaming_prefetch import StreamingPrefetchSession
@@ -71,6 +73,25 @@ def _virtual_screen_bounds(root: Any) -> tuple[int, int, int, int]:
         return 0, 0, int(root.winfo_screenwidth()), int(root.winfo_screenheight())
     except Exception:
         return 0, 0, 1920, 1080
+
+
+def _window_screen_rect(hwnd: int | None) -> tuple[int, int, int, int] | None:
+    if not hwnd:
+        return None
+    try:
+        rect = wintypes.RECT()
+        user32 = ctypes.windll.user32
+        if not user32.GetWindowRect(int(hwnd), ctypes.byref(rect)):
+            return None
+        left = int(rect.left)
+        top = int(rect.top)
+        right = int(rect.right)
+        bottom = int(rect.bottom)
+        if right <= left or bottom <= top:
+            return None
+        return left, top, right, bottom
+    except Exception:
+        return None
 
 
 class _ListenerGroup:
@@ -990,7 +1011,11 @@ class WindowsVoiceTyperApp:
             caret = get_text_target_screen_rect(self._paste_target_focus_hwnd or self._paste_target_hwnd or None)
             if caret is None:
                 return place_near_pointer(width, height)
-            return choose_hud_position_near_rect(caret, width, height, _virtual_screen_bounds(root))
+            bounds = _virtual_screen_bounds(root)
+            target_window = _window_screen_rect(self._paste_target_focus_hwnd or self._paste_target_hwnd or None)
+            if not is_reasonable_text_target_rect(caret, bounds, window_rect=target_window):
+                return place_near_pointer(width, height)
+            return choose_hud_position_near_rect(caret, width, height, bounds)
 
         def show_window(width: int, height: int) -> None:
             if not hud_visible["value"]:
