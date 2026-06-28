@@ -296,6 +296,7 @@ def normalize_common_misrecognitions(text: str) -> str:
         ("五認識", "誤認識"),
         ("5時たち", "誤字たち"),
         ("五時たち", "誤字たち"),
+        ("ご変換", "誤変換"),
         ("自処的", "自動的"),
         ("自処に", "自動的に"),
         ("実過", "実装"),
@@ -323,6 +324,7 @@ def normalize_common_misrecognitions(text: str) -> str:
 
 def normalize_rule_based_misrecognitions(text: str) -> str:
     result = text
+    result = collapse_restart_prefix_fragments(result)
     result = re.sub(r"(?:苦闘点|苦等点|句頭点|句読店)", "句読点", result)
     result = re.sub(
         r"(?:行く|いく|区|句)\s*と[、,\s]*点(?=(?:の|を|が|に|で|だけ|周り|まわり|について|関係|入力|補正|修正|問題))",
@@ -336,6 +338,23 @@ def normalize_rule_based_misrecognitions(text: str) -> str:
     )
     result = re.sub(r"(?:損し|そうし)\s*荒れている(?=(?:よう|感じ|ので|から|かも|気が|ところ|状態))", "少し荒れている", result)
     result = re.sub(r"(少し荒れている)(?:[、,\s]*\1)+", r"\1", result)
+    result = re.sub(
+        r"(対策を(?:取り|とり))[\s、,。．.！？!?…]*(?:音楽を(?:取り|とり)たい)",
+        "対策を取りたい",
+        result,
+    )
+    return result
+
+
+def collapse_restart_prefix_fragments(text: str) -> str:
+    pattern = re.compile(
+        rf"([{JAPANESE_CHARS}A-Za-z0-9]{{4,30}})[\s、,。．.！？!?…]+(\1[{JAPANESE_CHARS}A-Za-z0-9]{{1,80}})"
+    )
+    result = text
+    previous = None
+    while previous != result:
+        previous = result
+        result = pattern.sub(r"\2", result)
     return result
 
 

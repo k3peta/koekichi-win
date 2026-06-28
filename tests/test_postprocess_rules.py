@@ -64,6 +64,32 @@ class PostprocessRuleTests(unittest.TestCase):
         self.assertIn(phrase, prompt_for_mode("今日はここまでです", rewrite=True))
         self.assertIn(phrase, prompt_for_mode("今日はここまでです", rewrite=False))
 
+    def test_normalizes_gohenkan_misrecognition(self) -> None:
+        self.assertEqual(
+            normalize_transcript_artifacts("今回もご変換がありますね"),
+            "今回も誤変換がありますね",
+        )
+
+    def test_collapses_restart_prefix_fragment(self) -> None:
+        self.assertEqual(
+            normalize_transcript_artifacts("それらを追い、それらを追いかけて確認します"),
+            "それらを追いかけて確認します",
+        )
+
+    def test_normalizes_contextual_ongaku_to_taisaku(self) -> None:
+        self.assertEqual(
+            normalize_transcript_artifacts("何らかの対策を取り、音楽を取りたいと思います"),
+            "何らかの対策を取りたいと思います",
+        )
+
+    def test_normalizes_current_observed_error_sentence(self) -> None:
+        text = "毎回何らかの誤入力があったり、ご変換があったりするので、それらを追い、それらを追いかけて、何らかの対策を取り、音楽を取りたいと思います"
+
+        self.assertEqual(
+            normalize_transcript_artifacts(text),
+            "毎回何らかの誤入力があったり、誤変換があったりするので、それらを追いかけて、何らかの対策を取りたいと思います",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
