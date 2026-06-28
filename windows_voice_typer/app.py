@@ -1132,8 +1132,8 @@ class WindowsVoiceTyperApp:
 
         window = tk.Toplevel(root)
         window.title("Koe Kichi Settings")
-        window.geometry("720x760+130+80")
-        window.minsize(660, 700)
+        window.geometry("720x800+130+60")
+        window.minsize(660, 740)
 
         main = ttk.Frame(window, padding=14)
         main.pack(fill=tk.BOTH, expand=True)
@@ -1220,6 +1220,7 @@ class WindowsVoiceTyperApp:
         API_KEY_MASK = "\u25cf" * 12
         gemini_key_var = tk.StringVar(value=API_KEY_MASK if get_api_key(gemini_env_var.get()) else "")
         gemini_key_state = {"dirty": False, "placeholder": bool(gemini_key_var.get())}
+        preload_var = tk.BooleanVar(value=bool(current.get("preload_model_at_startup", False)))
         launch_var = tk.BooleanVar(value=bool(current.get("launch_at_login", False)))
         status_var = tk.StringVar(value="")
         api_status_var = tk.StringVar()
@@ -1407,8 +1408,14 @@ class WindowsVoiceTyperApp:
         paste_key_button = ttk.Button(key_row, text="貼り付け", command=paste_key_from_clipboard)
         paste_key_button.grid(row=0, column=1, padx=(8, 0))
 
-        ttk.Checkbutton(main, text="Launch Koe Kichi when I sign in", variable=launch_var).grid(
+        ttk.Checkbutton(main, text="Preload Whisper model at startup", variable=preload_var).grid(
             row=14,
+            column=1,
+            sticky=tk.W,
+            pady=6,
+        )
+        ttk.Checkbutton(main, text="Launch Koe Kichi when I sign in", variable=launch_var).grid(
+            row=15,
             column=1,
             sticky=tk.W,
             pady=6,
@@ -1418,7 +1425,7 @@ class WindowsVoiceTyperApp:
             "Local Whisper stays private and works offline after setup. "
             "Gemini sends each stopped recording to the Gemini API once."
         )
-        ttk.Label(main, text=note, wraplength=660, foreground="#555555").grid(row=15, column=0, columnspan=2, sticky=tk.EW, pady=(12, 4))
+        ttk.Label(main, text=note, wraplength=660, foreground="#555555").grid(row=16, column=0, columnspan=2, sticky=tk.EW, pady=(12, 4))
 
         def save_settings() -> None:
             if self.recorder.is_recording or self._busy:
@@ -1441,6 +1448,7 @@ class WindowsVoiceTyperApp:
             before_condition_previous = bool(self.config.get("whisper_condition_on_previous_text", False))
             before_auto_prompt_hints = bool(self.config.get("whisper_auto_prompt_hints_enabled", True))
             before_hotwords_enabled = bool(self.config.get("whisper_hotwords_enabled", False))
+            before_preload = bool(self.config.get("preload_model_at_startup", False))
 
             device = device_label_to_value.get(device_var.get(), "auto")
             config["input_device"] = int(device) if str(device).isdigit() else "auto"
@@ -1463,6 +1471,7 @@ class WindowsVoiceTyperApp:
             config["openai_compatible_model"] = ai_model_var.get().strip() or "gpt-4.1-mini"
             config["openai_compatible_api_key_env"] = ai_key_env_var.get().strip() or "OPENAI_API_KEY"
             config["gemini_api_key_env"] = gemini_env_var.get().strip() or "GEMINI_API_KEY"
+            config["preload_model_at_startup"] = bool(preload_var.get())
             config["launch_at_login"] = bool(launch_var.get())
 
             key_text = gemini_key_var.get().strip()
@@ -1524,6 +1533,11 @@ class WindowsVoiceTyperApp:
                 if bool(self.config.get("preload_model_at_startup", False)):
                     self._start_model_warmup()
 
+            if bool(self.config.get("preload_model_at_startup", False)) != before_preload:
+                self._log(f"settings applied: preload_model_at_startup={self.config.get('preload_model_at_startup')}")
+                if bool(self.config.get("preload_model_at_startup", False)):
+                    self._start_model_warmup()
+
             if (
                 bool(self.config.get("whisper_auto_prompt_hints_enabled", True)) != before_auto_prompt_hints
                 or bool(self.config.get("whisper_hotwords_enabled", False)) != before_hotwords_enabled
@@ -1542,10 +1556,10 @@ class WindowsVoiceTyperApp:
             self._notify("Koe Kichi settings", "Settings saved.")
 
         button_frame = ttk.Frame(main)
-        button_frame.grid(row=16, column=0, columnspan=2, sticky=tk.EW, pady=(16, 0))
+        button_frame.grid(row=17, column=0, columnspan=2, sticky=tk.EW, pady=(16, 0))
         ttk.Button(button_frame, text="保存", command=save_settings).pack(side=tk.LEFT)
         ttk.Button(button_frame, text="閉じる", command=window.destroy).pack(side=tk.RIGHT)
-        ttk.Label(main, textvariable=status_var).grid(row=17, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
+        ttk.Label(main, textvariable=status_var).grid(row=18, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
 
         provider_var.trace_add("write", sync_gemini_state)
         gemini_env_var.trace_add("write", refresh_api_status)
