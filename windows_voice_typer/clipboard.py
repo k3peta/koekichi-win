@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 import time
+from typing import Any
 
 
 GA_ROOT = 2
@@ -100,6 +101,121 @@ def get_caret_screen_rect(target_hwnd: int | None = None) -> tuple[int, int, int
         )
     except Exception:
         return None
+
+
+def get_text_target_screen_rect(target_hwnd: int | None = None) -> tuple[int, int, int, int] | None:
+    return get_caret_screen_rect(target_hwnd) or _get_uia_focused_text_rect(target_hwnd)
+
+
+def _get_uia_focused_text_rect(target_hwnd: int | None = None) -> tuple[int, int, int, int] | None:
+    try:
+        import comtypes.client
+
+        try:
+            comtypes.client.GetModule("UIAutomationCore.dll")
+        except Exception:
+            pass
+        from comtypes.gen import UIAutomationClient as UIA
+
+        automation = comtypes.client.CreateObject(
+            "{FF48DBA4-60EF-4201-AA87-54103EEF594E}",
+            interface=UIA.IUIAutomation,
+        )
+        element = _uia_focused_text_element(automation, UIA, target_hwnd)
+        if not element:
+            return None
+        selection = _uia_selection_rect(element, UIA)
+        if selection is not None:
+            return selection
+        return _normalize_screen_rect(element.CurrentBoundingRectangle)
+    except Exception:
+        return None
+
+
+def _uia_focused_text_element(automation: Any, UIA: Any, target_hwnd: int | None) -> Any | None:
+    root = None
+    if target_hwnd:
+        try:
+            root = automation.ElementFromHandle(int(target_hwnd))
+        except Exception:
+            root = None
+    if root is not None:
+        try:
+            condition = automation.CreatePropertyCondition(UIA.UIA_HasKeyboardFocusPropertyId, True)
+            focused_child = root.FindFirst(UIA.TreeScope_Descendants, condition)
+            if focused_child is not None and _uia_is_text_element(focused_child, UIA):
+                return focused_child
+        except Exception:
+            pass
+    try:
+        focused = automation.GetFocusedElement()
+    except Exception:
+        focused = None
+    if focused is not None and _uia_is_text_element(focused, UIA):
+        return focused
+    return None
+
+
+def _uia_is_text_element(element: Any, UIA: Any) -> bool:
+    try:
+        if int(element.CurrentControlType) in (UIA.UIA_EditControlTypeId, UIA.UIA_DocumentControlTypeId):
+            return True
+    except Exception:
+        pass
+    try:
+        element.GetCurrentPattern(UIA.UIA_TextPatternId)
+        return True
+    except Exception:
+        return False
+
+
+def _uia_selection_rect(element: Any, UIA: Any) -> tuple[int, int, int, int] | None:
+    try:
+        pattern = element.GetCurrentPattern(UIA.UIA_TextPatternId)
+        text_pattern = pattern.QueryInterface(UIA.IUIAutomationTextPattern)
+        ranges = text_pattern.GetSelection()
+        if not ranges or ranges.Length <= 0:
+            return None
+        text_range = ranges.GetElement(0)
+        raw_rects = list(text_range.GetBoundingRectangles())
+    except Exception:
+        return None
+    for index in range(0, len(raw_rects) - 3, 4):
+        left = int(raw_rects[index])
+        top = int(raw_rects[index + 1])
+        width = int(raw_rects[index + 2])
+        height = int(raw_rects[index + 3])
+        rect = _normalize_rect_values(left, top, left + width, top + height)
+        if rect is not None:
+            return rect
+    return None
+
+
+def _normalize_screen_rect(rect: Any) -> tuple[int, int, int, int] | None:
+    try:
+        return _normalize_rect_values(
+            int(rect.left),
+            int(rect.top),
+            int(rect.right),
+            int(rect.bottom),
+        )
+    except Exception:
+        return None
+
+
+def _normalize_rect_values(left: int, top: int, right: int, bottom: int) -> tuple[int, int, int, int] | None:
+    if left <= 0 and top <= 0:
+        return None
+    width = right - left
+    height = bottom - top
+    if width <= 0 and height <= 0:
+        return None
+    return (
+        left,
+        top,
+        left + max(2, width),
+        top + max(18, height),
+    )
 
 
 def paste_text(

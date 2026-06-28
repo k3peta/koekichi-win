@@ -14,9 +14,9 @@ from typing import Any
 
 from .clipboard import clear_alt_menu_focus
 from .clipboard import copy_text
-from .clipboard import get_caret_screen_rect
 from .clipboard import get_focus_window
 from .clipboard import get_foreground_window
+from .clipboard import get_text_target_screen_rect
 from .clipboard import paste_text
 from .clipboard import restore_focus
 from .config import app_data_dir
@@ -987,7 +987,7 @@ class WindowsVoiceTyperApp:
             return 8 <= x <= screen_w - width - 8 and 8 <= y <= screen_h - height - 8
 
         def place_near_text_target(width: int, height: int) -> tuple[int, int]:
-            caret = get_caret_screen_rect(self._paste_target_focus_hwnd or self._paste_target_hwnd or None)
+            caret = get_text_target_screen_rect(self._paste_target_focus_hwnd or self._paste_target_hwnd or None)
             if caret is None:
                 return place_near_pointer(width, height)
             left, top, right, bottom = caret
