@@ -380,7 +380,7 @@ class WindowsVoiceTyperApp:
             self._set_status("Ready - double-tap Alt to start")
             self._log("whisper model warmup skipped: transcription_provider=gemini_audio")
             return
-        if self._model_warmup_thread is not None:
+        if self._model_warmup_thread is not None and self._model_warmup_thread.is_alive():
             return
 
         def warmup() -> None:
@@ -404,6 +404,7 @@ class WindowsVoiceTyperApp:
                 return
             finally:
                 self._model_loading = False
+                self._model_warmup_thread = None
             self._log(f"whisper model warmup complete seconds={time.perf_counter() - started:.2f}")
             with self._lock:
                 ready_for_status = self._state == AppState.READY
@@ -1605,8 +1606,9 @@ class WindowsVoiceTyperApp:
             if self._transcription_provider() != before_provider:
                 self._log(f"settings applied: transcription_provider={self._transcription_provider()}")
 
+            model_changed = str(self.config.get("whisper_model", "small") or "small") != before_model
             if (
-                str(self.config.get("whisper_model", "small") or "small") != before_model
+                model_changed
                 or int(self.config.get("whisper_beam_size", 3) or 3) != before_beam_size
                 or bool(self.config.get("whisper_condition_on_previous_text", False)) != before_condition_previous
             ):
@@ -1620,6 +1622,8 @@ class WindowsVoiceTyperApp:
                 )
                 if bool(self.config.get("preload_model_at_startup", False)):
                     self._start_model_warmup()
+                elif model_changed:
+                    self._run_model_setup(notify_when_already_running=False)
 
             if bool(self.config.get("preload_model_at_startup", False)) != before_preload:
                 self._log(f"settings applied: preload_model_at_startup={self.config.get('preload_model_at_startup')}")
