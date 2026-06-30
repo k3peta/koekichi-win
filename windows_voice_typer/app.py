@@ -665,31 +665,13 @@ class WindowsVoiceTyperApp:
 
     def _create_double_tap_listener(self, record_key: str, double_tap_interval: float) -> Any | None:
         backend = str(self.config.get("input_listener_backend", "polling")).strip().lower()
+        if (
+            record_key in ("alt", "option")
+            and bool(self.config.get("suppress_alt_menu_shortcut", True))
+        ):
+            backend = "low_level"
         if backend != "low_level":
-            from .polling_input import PollingDoubleTapListener
-
-            def get_target() -> tuple[int, int]:
-                if self.recorder.is_recording or self._busy:
-                    return 0, 0
-                return get_foreground_window(), get_focus_window()
-
-            def on_double_tap(target_hwnd: int = 0, target_focus_hwnd: int = 0) -> None:
-                self._log(f"{record_key} double tap detected")
-                self._set_activation_source(
-                    record_key,
-                    needs_alt_cleanup=record_key in ("alt", "option"),
-                )
-                self.toggle_recording(target_hwnd=target_hwnd, target_focus_hwnd=target_focus_hwnd)
-
-            listener = PollingDoubleTapListener(
-                key=record_key,
-                interval_seconds=double_tap_interval,
-                callback=on_double_tap,
-                get_target=get_target,
-            )
-            listener.start()
-            self._log(f"keyboard listener started: record_key={record_key}, mode=polling_double_tap")
-            return listener
+            return self._create_polling_double_tap_listener(record_key, double_tap_interval)
 
         if record_key not in ("alt", "option"):
             return self._create_pynput_double_tap_listener(record_key, double_tap_interval)
@@ -722,8 +704,34 @@ class WindowsVoiceTyperApp:
             self._log(f"keyboard listener started: record_key={record_key}, mode=double_tap_suppressed_async")
             return self._keyboard_listener
         except Exception as error:
-            self._log(f"keyboard hook failed; falling back to pynput: {error}")
-            return self._create_pynput_double_tap_listener(record_key, double_tap_interval)
+            self._log(f"keyboard hook failed; falling back to polling: {error}")
+            return self._create_polling_double_tap_listener(record_key, double_tap_interval)
+
+    def _create_polling_double_tap_listener(self, record_key: str, double_tap_interval: float) -> Any | None:
+        from .polling_input import PollingDoubleTapListener
+
+        def get_target() -> tuple[int, int]:
+            if self.recorder.is_recording or self._busy:
+                return 0, 0
+            return get_foreground_window(), get_focus_window()
+
+        def on_double_tap(target_hwnd: int = 0, target_focus_hwnd: int = 0) -> None:
+            self._log(f"{record_key} double tap detected")
+            self._set_activation_source(
+                record_key,
+                needs_alt_cleanup=record_key in ("alt", "option"),
+            )
+            self.toggle_recording(target_hwnd=target_hwnd, target_focus_hwnd=target_focus_hwnd)
+
+        listener = PollingDoubleTapListener(
+            key=record_key,
+            interval_seconds=double_tap_interval,
+            callback=on_double_tap,
+            get_target=get_target,
+        )
+        listener.start()
+        self._log(f"keyboard listener started: record_key={record_key}, mode=polling_double_tap")
+        return listener
 
     def _create_pynput_double_tap_listener(self, record_key: str, double_tap_interval: float) -> Any | None:
         from pynput import keyboard
