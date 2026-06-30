@@ -161,6 +161,7 @@ def _run_initial_settings(config: dict[str, Any], config_path: Any) -> dict[str,
         )
     launch_at_login = _choose_launch_at_login(bool(config.get("launch_at_login", False)))
     config["launch_at_login"] = launch_at_login
+    config["initial_settings_completed"] = True
     save_config(config, config_path)
     startup_result = _apply_launch_at_login(launch_at_login)
     print(

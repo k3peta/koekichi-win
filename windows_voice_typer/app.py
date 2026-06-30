@@ -158,6 +158,7 @@ class WindowsVoiceTyperApp:
         self._model_warmup_thread = None
         self._model_setup_thread = None
         self._streaming_session = None
+        self._initial_settings_prompted = False
         self._status_queue: queue.Queue[str] = queue.Queue()
         self.log_path = app_data_dir() / "koe-kichi.log"
         self.history_path = app_data_dir() / "history.json"
@@ -326,7 +327,10 @@ class WindowsVoiceTyperApp:
         self._start_keyboard_listener()
         self._start_mouse_listener()
         self._start_tray_icon()
-        self._start_model_warmup()
+        if self._initial_settings_pending():
+            self._log("initial settings pending: model warmup delayed")
+        else:
+            self._start_model_warmup()
         self._log(f"startup initialized seconds={time.perf_counter() - self._created_at:.2f}")
         self._log("koe-kichi is running. Double-tap Alt to start/stop recording.")
         try:
@@ -360,6 +364,16 @@ class WindowsVoiceTyperApp:
         except Exception as error:
             self._streaming_session = None
             self._log(f"streaming prefetch unavailable: {error}")
+
+    def _initial_settings_pending(self) -> bool:
+        return not bool(self.config.get("initial_settings_completed", True))
+
+    def _open_initial_settings_window(self) -> None:
+        if self._initial_settings_prompted or not self._initial_settings_pending():
+            return
+        self._initial_settings_prompted = True
+        self._log("opening initial settings window")
+        self._open_settings_window()
 
     def _stop_streaming_prefetch(self) -> None:
         session = self._streaming_session
@@ -1118,10 +1132,13 @@ class WindowsVoiceTyperApp:
                 return
             root.after(100, poll_status)
 
+        if self._initial_settings_pending():
+            root.after(300, self._open_initial_settings_window)
         root.after(100, poll_status)
         root.mainloop()
         self._control_root = None
         return True
+
     def _schedule_ui(self, callback: Any) -> None:
         root = self._control_root
         if root is None:
@@ -1538,6 +1555,7 @@ class WindowsVoiceTyperApp:
             before_auto_prompt_hints = bool(self.config.get("whisper_auto_prompt_hints_enabled", True))
             before_hotwords_enabled = bool(self.config.get("whisper_hotwords_enabled", False))
             before_preload = bool(self.config.get("preload_model_at_startup", False))
+            before_initial_settings_completed = bool(self.config.get("initial_settings_completed", True))
 
             device = device_label_to_value.get(device_var.get(), "auto")
             config["input_device"] = int(device) if str(device).isdigit() else "auto"
@@ -1562,6 +1580,7 @@ class WindowsVoiceTyperApp:
             config["gemini_api_key_env"] = gemini_env_var.get().strip() or "GEMINI_API_KEY"
             config["preload_model_at_startup"] = bool(preload_var.get())
             config["launch_at_login"] = bool(launch_var.get())
+            config["initial_settings_completed"] = True
 
             key_text = gemini_key_var.get().strip()
             if key_text and key_text != API_KEY_MASK and gemini_key_state["dirty"]:
@@ -1607,6 +1626,10 @@ class WindowsVoiceTyperApp:
                 self._log(f"settings applied: transcription_provider={self._transcription_provider()}")
 
             model_changed = str(self.config.get("whisper_model", "small") or "small") != before_model
+            initial_settings_just_completed = (
+                not before_initial_settings_completed
+                and bool(self.config.get("initial_settings_completed", False))
+            )
             if (
                 model_changed
                 or int(self.config.get("whisper_beam_size", 3) or 3) != before_beam_size
@@ -1622,7 +1645,13 @@ class WindowsVoiceTyperApp:
                 )
                 if bool(self.config.get("preload_model_at_startup", False)):
                     self._start_model_warmup()
-                elif model_changed:
+                elif model_changed or initial_settings_just_completed:
+                    self._run_model_setup(notify_when_already_running=False)
+            elif initial_settings_just_completed:
+                self._log("initial settings completed: starting model setup")
+                if bool(self.config.get("preload_model_at_startup", False)):
+                    self._start_model_warmup()
+                else:
                     self._run_model_setup(notify_when_already_running=False)
 
             if bool(self.config.get("preload_model_at_startup", False)) != before_preload:
