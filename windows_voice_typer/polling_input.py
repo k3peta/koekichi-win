@@ -32,6 +32,14 @@ VK_CODES: dict[str, int] = {
     "middle_mouse": 0x04,
 }
 
+VK_CODE_OPTIONS: dict[str, tuple[int, ...]] = {
+    "alt": (0x12, 0xA4, 0xA5),
+    "option": (0x12, 0xA4, 0xA5),
+    "ctrl": (0x11, 0xA2, 0xA3),
+    "control": (0x11, 0xA2, 0xA3),
+    "shift": (0x10, 0xA0, 0xA1),
+}
+
 
 class PollingDoubleTapListener:
     def __init__(
@@ -44,7 +52,7 @@ class PollingDoubleTapListener:
         poll_seconds: float = 0.025,
     ):
         self.key = key.strip().lower()
-        self.vk_code = _vk_code_for_key(self.key)
+        self.vk_codes = _vk_codes_for_key(self.key)
         self.interval_seconds = max(0.05, float(interval_seconds))
         self.callback = callback
         self.get_target = get_target
@@ -72,7 +80,7 @@ class PollingDoubleTapListener:
     def _run(self) -> None:
         while not self._stop_event.wait(self.poll_seconds):
             now = time.monotonic()
-            down = _is_down(self.vk_code)
+            down = _is_any_down(self.vk_codes)
             if not down and not self._last_down:
                 if self._last_tap_at and now - self._last_tap_at > self.interval_seconds:
                     self._last_tap_at = 0.0
@@ -115,7 +123,7 @@ class PollingHoldListener:
         poll_seconds: float = 0.025,
     ):
         self.key = key.strip().lower()
-        self.vk_code = _vk_code_for_key(self.key)
+        self.vk_codes = _vk_codes_for_key(self.key)
         self.start_delay_seconds = max(0.0, float(start_delay_seconds))
         self.on_start = on_start
         self.on_stop = on_stop
@@ -140,7 +148,7 @@ class PollingHoldListener:
 
     def _run(self) -> None:
         while not self._stop_event.wait(self.poll_seconds):
-            down = _is_down(self.vk_code)
+            down = _is_any_down(self.vk_codes)
             now = time.monotonic()
             if down:
                 if not self._pressed_at:
@@ -166,7 +174,7 @@ class PollingClickListener:
         poll_seconds: float = 0.02,
     ):
         self.key = key.strip().lower()
-        self.vk_code = _vk_code_for_key(self.key)
+        self.vk_codes = _vk_codes_for_key(self.key)
         self.callback = callback
         self.debounce_seconds = max(0.05, float(debounce_seconds))
         self.poll_seconds = max(0.01, float(poll_seconds))
@@ -190,7 +198,7 @@ class PollingClickListener:
 
     def _run(self) -> None:
         while not self._stop_event.wait(self.poll_seconds):
-            down = _is_down(self.vk_code)
+            down = _is_any_down(self.vk_codes)
             if self._last_down and not down:
                 now = time.monotonic()
                 if now - self._last_click_at >= self.debounce_seconds:
@@ -207,8 +215,18 @@ def _vk_code_for_key(key: str) -> int:
     raise ValueError(f"Unsupported polling input key: {key}")
 
 
+def _vk_codes_for_key(key: str) -> tuple[int, ...]:
+    if key in VK_CODE_OPTIONS:
+        return VK_CODE_OPTIONS[key]
+    return (_vk_code_for_key(key),)
+
+
 def _is_down(vk_code: int) -> bool:
     return bool(ctypes.windll.user32.GetAsyncKeyState(int(vk_code)) & 0x8000)
+
+
+def _is_any_down(vk_codes: tuple[int, ...]) -> bool:
+    return any(_is_down(vk_code) for vk_code in vk_codes)
 
 
 def _call_async(callback: Callback, *args: Any) -> None:
