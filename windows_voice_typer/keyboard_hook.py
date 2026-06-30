@@ -56,19 +56,31 @@ LowLevelKeyboardProc = ctypes.WINFUNCTYPE(
 
 TargetProvider = Callable[[], tuple[int, int]]
 DoubleTapCallback = Callable[[int, int], None]
+HoldCallback = Callable[[], None]
+SingleTapCallback = Callable[[], None]
 
 
-class AltDoubleTapHook:
+class AltActivationHook:
     def __init__(
         self,
         *,
         interval_seconds: float,
         get_target: TargetProvider,
-        on_double_tap: DoubleTapCallback,
+        on_double_tap: DoubleTapCallback | None = None,
+        hold_start_delay_seconds: float | None = None,
+        on_hold_start: HoldCallback | None = None,
+        on_hold_stop: HoldCallback | None = None,
+        on_single_tap: SingleTapCallback | None = None,
+        single_tap_delay_seconds: float = 0.08,
     ):
-        self.interval_seconds = interval_seconds
+        self.interval_seconds = max(0.05, float(interval_seconds))
         self.get_target = get_target
         self.on_double_tap = on_double_tap
+        self.hold_start_delay_seconds = max(0.0, float(hold_start_delay_seconds or 0.0))
+        self.on_hold_start = on_hold_start
+        self.on_hold_stop = on_hold_stop
+        self.on_single_tap = on_single_tap
+        self.single_tap_delay_seconds = max(0.0, float(single_tap_delay_seconds))
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -77,9 +89,12 @@ class AltDoubleTapHook:
         self._hook = None
         self._install_error = ""
         self._proc_ref = None
-        self._callback_queue: queue.SimpleQueue[tuple[int, int] | None] = queue.SimpleQueue()
+        self._callback_queue: queue.SimpleQueue[tuple[str, tuple[int, int] | None] | None] = queue.SimpleQueue()
         self._lock = threading.Lock()
         self._key_down = False
+        self._hold_started = False
+        self._hold_timer: threading.Timer | None = None
+        self._single_tap_timer: threading.Timer | None = None
         self._last_tap_at = 0.0
 
     def start(self) -> None:
@@ -99,6 +114,8 @@ class AltDoubleTapHook:
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._cancel_hold_timer()
+        self._cancel_single_tap_timer()
         if self._thread_id:
             try:
                 ctypes.windll.user32.PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
@@ -179,24 +196,98 @@ class AltDoubleTapHook:
             with self._lock:
                 if self._key_down:
                     return
+                self._cancel_single_tap_timer_locked()
                 self._key_down = True
+                self._hold_started = False
+                self._schedule_hold_timer_locked()
             return
 
         if message not in (WM_KEYUP, WM_SYSKEYUP):
             return
 
         should_toggle = False
+        should_stop_hold = False
         with self._lock:
+            if not self._key_down:
+                return
             self._key_down = False
+            self._cancel_hold_timer_locked()
+            if self._hold_started:
+                should_stop_hold = True
+                self._hold_started = False
             last_tap_at = self._last_tap_at
-            if last_tap_at and now - last_tap_at <= self.interval_seconds:
+            if self.on_double_tap and last_tap_at and now - last_tap_at <= self.interval_seconds:
                 self._last_tap_at = 0.0
+                self._cancel_single_tap_timer_locked()
                 should_toggle = True
             else:
-                self._last_tap_at = now
+                self._last_tap_at = now if self.on_double_tap else 0.0
+                if not should_stop_hold:
+                    self._schedule_single_tap_timer_locked()
 
+        if should_stop_hold:
+            self._callback_queue.put(("hold_stop", None))
         if should_toggle:
-            self._callback_queue.put((0, 0))
+            self._callback_queue.put(("double_tap", (0, 0)))
+
+    def _schedule_hold_timer_locked(self) -> None:
+        if self.on_hold_start is None:
+            return
+        self._cancel_hold_timer_locked()
+        timer = threading.Timer(self.hold_start_delay_seconds, self._maybe_start_hold)
+        timer.daemon = True
+        self._hold_timer = timer
+        timer.start()
+
+    def _cancel_hold_timer(self) -> None:
+        with self._lock:
+            self._cancel_hold_timer_locked()
+
+    def _cancel_hold_timer_locked(self) -> None:
+        timer = self._hold_timer
+        self._hold_timer = None
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+
+    def _schedule_single_tap_timer_locked(self) -> None:
+        if self.on_single_tap is None:
+            return
+        self._cancel_single_tap_timer_locked()
+        timer = threading.Timer(self.single_tap_delay_seconds, self._run_single_tap)
+        timer.daemon = True
+        self._single_tap_timer = timer
+        timer.start()
+
+    def _cancel_single_tap_timer(self) -> None:
+        with self._lock:
+            self._cancel_single_tap_timer_locked()
+
+    def _cancel_single_tap_timer_locked(self) -> None:
+        timer = self._single_tap_timer
+        self._single_tap_timer = None
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+
+    def _maybe_start_hold(self) -> None:
+        with self._lock:
+            self._hold_timer = None
+            if self._stop_event.is_set() or not self._key_down or self._hold_started:
+                return
+            self._hold_started = True
+        self._callback_queue.put(("hold_start", None))
+
+    def _run_single_tap(self) -> None:
+        with self._lock:
+            self._single_tap_timer = None
+            if self._stop_event.is_set() or self._key_down:
+                return
+        self._callback_queue.put(("single_tap", None))
 
     def _run_callbacks(self) -> None:
         while not self._stop_event.is_set():
@@ -206,11 +297,48 @@ class AltDoubleTapHook:
                 continue
             if item is None:
                 break
-            try:
-                target_hwnd, target_focus_hwnd = self.get_target()
-            except Exception:
-                target_hwnd, target_focus_hwnd = item
-            try:
-                self.on_double_tap(target_hwnd, target_focus_hwnd)
-            except Exception:
-                pass
+            event_name, payload = item
+            if event_name == "double_tap":
+                if self.on_double_tap is None:
+                    continue
+                try:
+                    target_hwnd, target_focus_hwnd = self.get_target()
+                except Exception:
+                    target_hwnd, target_focus_hwnd = payload or (0, 0)
+                try:
+                    self.on_double_tap(target_hwnd, target_focus_hwnd)
+                except Exception:
+                    pass
+                continue
+            if event_name == "hold_start" and self.on_hold_start is not None:
+                try:
+                    self.on_hold_start()
+                except Exception:
+                    pass
+                continue
+            if event_name == "hold_stop" and self.on_hold_stop is not None:
+                try:
+                    self.on_hold_stop()
+                except Exception:
+                    pass
+                continue
+            if event_name == "single_tap" and self.on_single_tap is not None:
+                try:
+                    self.on_single_tap()
+                except Exception:
+                    pass
+
+
+class AltDoubleTapHook(AltActivationHook):
+    def __init__(
+        self,
+        *,
+        interval_seconds: float,
+        get_target: TargetProvider,
+        on_double_tap: DoubleTapCallback,
+    ):
+        super().__init__(
+            interval_seconds=interval_seconds,
+            get_target=get_target,
+            on_double_tap=on_double_tap,
+        )

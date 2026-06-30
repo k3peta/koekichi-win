@@ -642,13 +642,30 @@ class WindowsVoiceTyperApp:
         listeners: list[Any] = []
         record_key = str(self.config.get("record_key", "alt")).lower()
         double_tap_interval = float(self.config.get("double_tap_interval_seconds", 0.45))
-        if bool(self.config.get("double_tap_to_toggle", True)):
+        double_tap_enabled = bool(self.config.get("double_tap_to_toggle", True))
+        hold_enabled = bool(self.config.get("hold_to_record", False))
+        hold_key = str(self.config.get("hold_record_key", "alt") or "alt").strip().lower()
+        use_suppressed_alt_hook = bool(self.config.get("suppress_alt_menu_shortcut", True)) and (
+            (double_tap_enabled and _is_alt_activation_key(record_key))
+            or (hold_enabled and _is_alt_activation_key(hold_key))
+        )
+
+        if use_suppressed_alt_hook:
+            listener = self._create_suppressed_alt_activation_listener(
+                enable_double_tap=double_tap_enabled and _is_alt_activation_key(record_key),
+                double_tap_interval=double_tap_interval,
+                enable_hold=hold_enabled and _is_alt_activation_key(hold_key),
+                hold_start_delay=float(self.config.get("hold_start_delay_seconds", 0.2)),
+            )
+            if listener is not None:
+                listeners.append(listener)
+
+        if double_tap_enabled and not (use_suppressed_alt_hook and _is_alt_activation_key(record_key)):
             listener = self._create_double_tap_listener(record_key, double_tap_interval)
             if listener is not None:
                 listeners.append(listener)
 
-        if bool(self.config.get("hold_to_record", False)):
-            hold_key = str(self.config.get("hold_record_key", "f8") or "f8").strip().lower()
+        if hold_enabled and not (use_suppressed_alt_hook and _is_alt_activation_key(hold_key)):
             listener = self._create_hold_keyboard_listener(
                 hold_key,
                 float(self.config.get("hold_start_delay_seconds", 0.2)),
@@ -663,17 +680,96 @@ class WindowsVoiceTyperApp:
         else:
             self._keyboard_listener = _ListenerGroup(listeners)
 
+    def _create_suppressed_alt_activation_listener(
+        self,
+        *,
+        enable_double_tap: bool,
+        double_tap_interval: float,
+        enable_hold: bool,
+        hold_start_delay: float,
+    ) -> Any | None:
+        from .keyboard_hook import AltActivationHook
+
+        def get_target() -> tuple[int, int]:
+            if self.recorder.is_recording or self._busy:
+                return 0, 0
+            return get_foreground_window(), get_focus_window()
+
+        def on_double_tap(target_hwnd: int, target_focus_hwnd: int) -> None:
+            self._log("alt double tap detected")
+            self._set_activation_source("alt")
+            threading.Thread(
+                target=self.toggle_recording,
+                kwargs={
+                    "target_hwnd": target_hwnd,
+                    "target_focus_hwnd": target_focus_hwnd,
+                },
+                daemon=True,
+            ).start()
+
+        def on_hold_start() -> None:
+            self._log("alt hold recording start")
+            self._set_activation_source("alt")
+            self.start_recording()
+
+        def on_hold_stop() -> None:
+            self._log("alt hold recording stop")
+            self.stop_recording()
+
+        def on_single_tap() -> None:
+            try:
+                cleared = clear_alt_menu_focus(get_foreground_window(), get_focus_window())
+                if cleared:
+                    self._log("alt single tap menu cleanup: True")
+            except Exception as error:
+                self._log(f"alt single tap menu cleanup failed: {error}")
+
+        try:
+            listener = AltActivationHook(
+                interval_seconds=double_tap_interval,
+                get_target=get_target,
+                on_double_tap=on_double_tap if enable_double_tap else None,
+                hold_start_delay_seconds=hold_start_delay,
+                on_hold_start=on_hold_start if enable_hold else None,
+                on_hold_stop=on_hold_stop if enable_hold else None,
+                on_single_tap=on_single_tap,
+            )
+            listener.start()
+            self._log(
+                "keyboard listener started: "
+                f"record_key=alt, hold_record_key=alt, "
+                f"mode=alt_suppressed_async, double_tap={enable_double_tap}, hold={enable_hold}"
+            )
+            return listener
+        except Exception as error:
+            self._log(f"alt keyboard hook failed; falling back to polling: {error}")
+
+        fallbacks: list[Any] = []
+        if enable_double_tap:
+            listener = self._create_polling_double_tap_listener("alt", double_tap_interval)
+            if listener is not None:
+                fallbacks.append(listener)
+        if enable_hold:
+            listener = self._create_hold_keyboard_listener("alt", hold_start_delay)
+            if listener is not None:
+                fallbacks.append(listener)
+        if not fallbacks:
+            return None
+        if len(fallbacks) == 1:
+            return fallbacks[0]
+        return _ListenerGroup(fallbacks)
+
     def _create_double_tap_listener(self, record_key: str, double_tap_interval: float) -> Any | None:
         backend = str(self.config.get("input_listener_backend", "polling")).strip().lower()
         if (
-            record_key in ("alt", "option")
+            _is_alt_activation_key(record_key)
             and bool(self.config.get("suppress_alt_menu_shortcut", True))
         ):
             backend = "low_level"
         if backend != "low_level":
             return self._create_polling_double_tap_listener(record_key, double_tap_interval)
 
-        if record_key not in ("alt", "option"):
+        if not _is_alt_activation_key(record_key):
             return self._create_pynput_double_tap_listener(record_key, double_tap_interval)
         from .keyboard_hook import AltDoubleTapHook
 
@@ -719,7 +815,7 @@ class WindowsVoiceTyperApp:
             self._log(f"{record_key} double tap detected")
             self._set_activation_source(
                 record_key,
-                needs_alt_cleanup=record_key in ("alt", "option"),
+                needs_alt_cleanup=_is_alt_activation_key(record_key),
             )
             self.toggle_recording(target_hwnd=target_hwnd, target_focus_hwnd=target_focus_hwnd)
 
@@ -768,7 +864,7 @@ class WindowsVoiceTyperApp:
                 self._log(f"{record_key} double tap detected")
                 self._set_activation_source(
                     record_key,
-                    needs_alt_cleanup=record_key in ("alt", "option"),
+                    needs_alt_cleanup=_is_alt_activation_key(record_key),
                 )
                 threading.Thread(target=self.toggle_recording, daemon=True).start()
 
@@ -1252,6 +1348,7 @@ class WindowsVoiceTyperApp:
         key_label_to_value = {label: value for value, label in key_options}
         key_var = tk.StringVar(value=_label_for_value(key_options, str(current.get("record_key", "alt")).lower()))
         hold_key_options = [
+            ("alt", "Alt"),
             ("f6", "F6"),
             ("f7", "F7"),
             ("f8", "F8"),
@@ -1267,7 +1364,7 @@ class WindowsVoiceTyperApp:
         hold_key_var = tk.StringVar(
             value=_label_for_value(
                 hold_key_options,
-                str(current.get("hold_record_key", "f8") or "f8").lower(),
+                str(current.get("hold_record_key", "alt") or "alt").lower(),
             )
         )
         middle_click_var = tk.BooleanVar(value=bool(current.get("middle_click_toggle_recording", False)))
@@ -1534,7 +1631,7 @@ class WindowsVoiceTyperApp:
             before_device = str(self.config.get("input_device", "auto"))
             before_key = str(self.config.get("record_key", "alt")).lower()
             before_hold_enabled = bool(self.config.get("hold_to_record", False))
-            before_hold_key = str(self.config.get("hold_record_key", "f8") or "f8").lower()
+            before_hold_key = str(self.config.get("hold_record_key", "alt") or "alt").lower()
             before_middle_enabled = bool(self.config.get("middle_click_toggle_recording", False))
             before_middle_suppress = False
             before_provider = self._transcription_provider()
@@ -1550,7 +1647,7 @@ class WindowsVoiceTyperApp:
             config["record_key"] = key_label_to_value.get(key_var.get(), "alt")
             config["hold_to_record"] = bool(hold_enabled_var.get())
             config["hold_record_key"] = (
-                hold_key_label_to_value.get(hold_key_var.get(), hold_key_var.get().strip().lower()) or "f8"
+                hold_key_label_to_value.get(hold_key_var.get(), hold_key_var.get().strip().lower()) or "alt"
             )
             config["double_tap_to_toggle"] = True
             config["middle_click_toggle_recording"] = bool(middle_click_var.get())
@@ -1599,7 +1696,7 @@ class WindowsVoiceTyperApp:
             if (
                 str(self.config.get("record_key", "alt")).lower() != before_key
                 or bool(self.config.get("hold_to_record", False)) != before_hold_enabled
-                or str(self.config.get("hold_record_key", "f8") or "f8").lower() != before_hold_key
+                or str(self.config.get("hold_record_key", "alt") or "alt").lower() != before_hold_key
             ):
                 self._restart_keyboard_listener()
 
@@ -1969,6 +2066,14 @@ class WindowsVoiceTyperApp:
 
     def _acquire_single_instance_lock(self) -> bool:
         try:
+            from .single_instance import acquire_single_instance
+
+            if not acquire_single_instance():
+                return False
+        except Exception:
+            pass
+
+        try:
             lock_path = app_data_dir() / "koe-kichi.lock"
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             handle = lock_path.open("a+b")
@@ -2012,6 +2117,10 @@ def _label_for_value(options: list[tuple[str, str]], value: str) -> str:
         if str(item_value) == str(value):
             return label
     return options[0][1] if options else str(value)
+
+
+def _is_alt_activation_key(key: str) -> bool:
+    return str(key).strip().lower() in ("alt", "option")
 
 
 def _matches_key(key: Any, configured: str, keyboard_module: Any) -> bool:

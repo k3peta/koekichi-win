@@ -33,7 +33,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "input_device": "auto",
     "record_key": "alt",
     "hold_to_record": False,
-    "hold_record_key": "f8",
+    "hold_record_key": "alt",
     "hold_start_delay_seconds": 0.2,
     "double_tap_to_toggle": True,
     "double_tap_interval_seconds": 0.45,
