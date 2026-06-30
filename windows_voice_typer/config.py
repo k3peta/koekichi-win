@@ -90,8 +90,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "openai_compatible_custom_prompt": "",
     "history_duplicate_window_seconds": 180.0,
     "launch_at_login": False,
-    "preload_model_at_startup": True,
-    "initial_settings_completed": False,
+    "preload_model_at_startup": False,
     "dictionary_path": "auto",
 }
 
@@ -127,8 +126,6 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
         if not isinstance(loaded, dict):
             raise ValueError(f"Config must be an object: {config_path}")
         config.update(loaded)
-        if "initial_settings_completed" not in loaded:
-            config["initial_settings_completed"] = True
     if config.get("dictionary_path") in ("", None, "auto"):
         config["dictionary_path"] = str(default_dictionary_path())
     else:

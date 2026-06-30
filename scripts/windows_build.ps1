@@ -46,7 +46,7 @@ if (-not $SkipTests) {
 $PyInstallerArgs = @(
     "--noconfirm",
     "--clean",
-    "--console",
+    "--windowed",
     "--name", "KoeKichiWin",
     "--collect-all", "faster_whisper",
     "--collect-all", "ctranslate2",
