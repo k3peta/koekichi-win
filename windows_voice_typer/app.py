@@ -1220,6 +1220,8 @@ class WindowsVoiceTyperApp:
         window.geometry("720x800+130+60")
         window.minsize(660, 740)
 
+        footer = ttk.Frame(window, padding=(14, 8, 14, 14))
+        footer.pack(side=tk.BOTTOM, fill=tk.X)
         main = ttk.Frame(window, padding=14)
         main.pack(fill=tk.BOTH, expand=True)
         main.columnconfigure(1, weight=1)
@@ -1642,15 +1644,15 @@ class WindowsVoiceTyperApp:
             if save_settings():
                 self._run_model_setup()
 
-        button_frame = ttk.Frame(main)
-        button_frame.grid(row=17, column=0, columnspan=2, sticky=tk.EW, pady=(16, 0))
+        button_frame = ttk.Frame(footer)
+        button_frame.pack(fill=tk.X)
         ttk.Button(button_frame, text="保存", command=save_settings).pack(side=tk.LEFT)
-        ttk.Button(button_frame, text="保存してWhisperモデルをダウンロード", command=save_and_download_model).pack(
-            side=tk.LEFT,
-            padx=(8, 0),
-        )
         ttk.Button(button_frame, text="閉じる", command=window.destroy).pack(side=tk.RIGHT)
-        ttk.Label(main, textvariable=status_var).grid(row=18, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
+        ttk.Button(footer, text="保存してWhisperモデルをダウンロード", command=save_and_download_model).pack(
+            anchor=tk.W,
+            pady=(8, 0),
+        )
+        ttk.Label(footer, textvariable=status_var).pack(anchor=tk.W, pady=(8, 0))
 
         provider_var.trace_add("write", sync_gemini_state)
         gemini_env_var.trace_add("write", refresh_api_status)
